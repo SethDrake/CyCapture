@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Threading;
@@ -14,6 +15,7 @@ namespace CyCapture
         private const byte CMD_GET_FW_VERSION = 0xB0;
         private const byte CMD_START = 0xB1;
         private const byte CMD_GET_REVID_VERSION = 0xB2;
+        private const byte CMD_SET_PORTA = 0xB3;
 
         private const byte CMD_START_FLAGS_WIDE_POS = 5;
         private const byte CMD_START_FLAGS_CLK_SRC_POS = 6;
@@ -62,6 +64,9 @@ namespace CyCapture
         private Label lblVer;
         private TextBox txtVersion;
         private TextBox txtData;
+        private Label lblPortA;
+        private TextBox txtPortValue;
+        private Button btnSetPortA;
 
         // These are needed to close the app from the Thread exception(exception handling)
         delegate void ExceptionCallback();
@@ -148,6 +153,7 @@ namespace CyCapture
                 if (ControlEndPoint != null)
                 {
                     StartBtn.Enabled = true;
+                    btnSetPortA.Enabled = true;
 
                     String ver = GetFirmwareVer();
                     String rev = GetRevision();
@@ -157,6 +163,7 @@ namespace CyCapture
             else
             {
                 StartBtn.Enabled = false;
+                btnSetPortA.Enabled = false;
                 txtData.Clear();
             }
         }
@@ -245,6 +252,9 @@ namespace CyCapture
             this.lblVer = new System.Windows.Forms.Label();
             this.txtVersion = new System.Windows.Forms.TextBox();
             this.txtData = new System.Windows.Forms.TextBox();
+            this.lblPortA = new System.Windows.Forms.Label();
+            this.txtPortValue = new System.Windows.Forms.TextBox();
+            this.btnSetPortA = new System.Windows.Forms.Button();
             this.groupBox1.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -369,10 +379,41 @@ namespace CyCapture
             this.txtData.Size = new System.Drawing.Size(330, 189);
             this.txtData.TabIndex = 20;
             // 
+            // lblPortA
+            // 
+            this.lblPortA.AutoSize = true;
+            this.lblPortA.Location = new System.Drawing.Point(18, 87);
+            this.lblPortA.Name = "lblPortA";
+            this.lblPortA.Size = new System.Drawing.Size(50, 13);
+            this.lblPortA.TabIndex = 21;
+            this.lblPortA.Text = "PORT A:";
+            // 
+            // txtPortValue
+            // 
+            this.txtPortValue.Location = new System.Drawing.Point(70, 83);
+            this.txtPortValue.MaxLength = 4;
+            this.txtPortValue.Name = "txtPortValue";
+            this.txtPortValue.Size = new System.Drawing.Size(35, 20);
+            this.txtPortValue.TabIndex = 22;
+            this.txtPortValue.Text = "0x00";
+            // 
+            // btnSetPortA
+            // 
+            this.btnSetPortA.Location = new System.Drawing.Point(111, 83);
+            this.btnSetPortA.Name = "btnSetPortA";
+            this.btnSetPortA.Size = new System.Drawing.Size(42, 20);
+            this.btnSetPortA.TabIndex = 23;
+            this.btnSetPortA.Text = "Set";
+            this.btnSetPortA.UseVisualStyleBackColor = false;
+            this.btnSetPortA.Click += new System.EventHandler(this.btnSetPortA_Click);
+            // 
             // MainFrm
             // 
             this.AutoScaleBaseSize = new System.Drawing.Size(5, 13);
             this.ClientSize = new System.Drawing.Size(374, 398);
+            this.Controls.Add(this.btnSetPortA);
+            this.Controls.Add(this.txtPortValue);
+            this.Controls.Add(this.lblPortA);
             this.Controls.Add(this.txtData);
             this.Controls.Add(this.txtVersion);
             this.Controls.Add(this.lblVer);
@@ -492,6 +533,28 @@ namespace CyCapture
             return isOk ? String.Format("{0}", buf[0]) : String.Empty;
         }
 
+        private bool SetPortaA(byte value)
+        {
+            if (ControlEndPoint == null)
+            {
+                return false;
+            }
+            var ctrlEp = (CyControlEndPoint)ControlEndPoint;
+            ctrlEp.Target = CyConst.TGT_DEVICE;
+            ctrlEp.Direction = CyConst.DIR_FROM_DEVICE;
+            ctrlEp.ReqType = CyConst.REQ_VENDOR;
+            ctrlEp.ReqCode = CMD_SET_PORTA;
+            ctrlEp.Value = value;
+            ctrlEp.Index = 0x0000;
+            ctrlEp.TimeOut = 1000;
+
+            byte[] buf = new byte[1];
+            int len = 1;
+
+            bool isOk = ctrlEp.XferData(ref buf, ref len);
+            return isOk;
+        }
+
         private bool StartCapture()
         {
             if (ControlEndPoint == null || BulkInEndPoint == null)
@@ -532,7 +595,7 @@ namespace CyCapture
             {
                 ppx = 8;
             }
-            BufSz = BulkInEndPoint.MaxPktSize * ppx;
+            BufSz = 512;//BulkInEndPoint.MaxPktSize * ppx;
             QueueSz = 1;
             PPX = ppx;
 
@@ -559,7 +622,7 @@ namespace CyCapture
                     if (tListen != null)
                     {
                         tListen.Abort();
-                        tListen.Join();
+                        //tListen.Join();
                         tListen = null;
                     }
 
@@ -613,7 +676,7 @@ namespace CyCapture
             var inEp = BulkInEndPoint;
 
             inEp.XferMode = XMODE.BUFFERED;
-            inEp.TimeOut = 200;
+            inEp.TimeOut = 500;
 
             t1 = DateTime.Now;
 
@@ -775,6 +838,22 @@ namespace CyCapture
             ThroughputLabel.Text = ProgressBar.Value.ToString();
 
             txtData.Text = BitConverter.ToString(buf, 0, len);
+        }
+
+        private void btnSetPortA_Click(object sender, EventArgs e)
+        {
+            if (!String.IsNullOrEmpty(txtPortValue.Text))
+            {
+                byte val = 0;
+                if (byte.TryParse(txtPortValue.Text.Replace("0x", ""), NumberStyles.HexNumber, new NumberFormatInfo(), out val))
+                {
+                    SetPortaA(val);
+                }
+                else
+                {
+                    txtPortValue.Text = "0x00";
+                }
+            }
         }
 
 
