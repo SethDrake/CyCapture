@@ -275,6 +275,8 @@ void gpif_poll(void)
 		/* Release NAK-ALL. */
 		FIFORESET = 0x00;
 		SYNCDELAY();
+		
+		switchPortAPins(0x00);
 
 		gpif_acquiring = STOPPED;
 	}

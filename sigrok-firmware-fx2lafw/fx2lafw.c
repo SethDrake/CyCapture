@@ -285,6 +285,7 @@ void fx2lafw_init(void)
 
 	/* TODO: Does the order of the following lines matter? */
 	ENABLE_SUDAV();
+	ENABLE_EP2IBN();
 	ENABLE_SOF();
 	ENABLE_HISPEED();
 	ENABLE_USBRESET();

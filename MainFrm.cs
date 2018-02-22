@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -48,6 +49,7 @@ namespace CyCapture
         TimeSpan elapsed;
         double XferBytes;
         long xferRate;
+        long received;
 
         int BufSz;
         int QueueSz;
@@ -58,7 +60,7 @@ namespace CyCapture
         bool bRunning;
 
         // These are  needed for Thread to update the UI
-        delegate void UpdateUICallback(byte[] buf, int len, bool isCompleted);
+        delegate void UpdateUICallback(byte[] buf, long len, bool isCompleted);
         UpdateUICallback updateUI;
         private TextBox txtDeviceName;
         private Label lblVer;
@@ -310,9 +312,9 @@ namespace CyCapture
             // ThroughputLabel
             // 
             this.ThroughputLabel.Font = new System.Drawing.Font("Microsoft Sans Serif", 8.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.ThroughputLabel.Location = new System.Drawing.Point(114, 38);
+            this.ThroughputLabel.Location = new System.Drawing.Point(16, 38);
             this.ThroughputLabel.Name = "ThroughputLabel";
-            this.ThroughputLabel.Size = new System.Drawing.Size(100, 16);
+            this.ThroughputLabel.Size = new System.Drawing.Size(294, 16);
             this.ThroughputLabel.TabIndex = 1;
             this.ThroughputLabel.Text = "0";
             this.ThroughputLabel.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
@@ -376,6 +378,7 @@ namespace CyCapture
             this.txtData.Location = new System.Drawing.Point(21, 197);
             this.txtData.Multiline = true;
             this.txtData.Name = "txtData";
+            this.txtData.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
             this.txtData.Size = new System.Drawing.Size(330, 189);
             this.txtData.TabIndex = 20;
             // 
@@ -669,6 +672,9 @@ namespace CyCapture
         */
         public void XferThread()
         {
+            int totallen = 65536;
+            byte[] totalbytes = new byte[totallen];
+
             byte[] buf = new byte[BufSz];
             int len = BufSz;
 
@@ -678,37 +684,32 @@ namespace CyCapture
             inEp.XferSize = BufSz;
             inEp.TimeOut = 2000;
 
-            t1 = DateTime.Now;
+            var sw = new Stopwatch();
+
+            int i = 0;
+
+            sw.Start();
 
             while (bRunning)
             {
-                try
+                bool isOk = inEp.XferData(ref buf, ref len, true);
+                if (isOk)
                 {
-                    bool isOk = inEp.XferData(ref buf, ref len, false);
-                    if (!isOk)
-                    {
-                        bRunning = false;
-                        //Array.Clear(buf, 0, BufSz);
-                    }
+                    Array.Copy(buf, 0, totalbytes, i, len);
+                    i += len;
+                    xferRate = (long)(i / sw.ElapsedMilliseconds);
                 }
-                catch (Exception)
+                else
                 {
-                    //ex.GetBaseException();
-                    this.Invoke(handleException);
+                    bRunning = false;
                 }
-
-                if (len > 0)
-                {
-                    t2 = DateTime.Now;
-                    elapsed = t2 - t1;
-                    xferRate = (long) (len / elapsed.TotalMilliseconds);
-                    xferRate = xferRate / (int) 100 * (int) 100;
-                }
-                this.Invoke(updateUI, buf, len, false);
-                Thread.Sleep(1);
             }
 
-            this.Invoke(updateUI, buf, len, true);
+            sw.Stop();
+
+            this.Invoke(updateUI, totalbytes, i, true);
+
+            Thread.Sleep(1);
 
             // Setup the queue buffers
             /*byte[][] cmdBufs = new byte[QueueSz][];
@@ -834,15 +835,15 @@ namespace CyCapture
         /*Summary
           The callback routine delegated to updateUI.
         */
-        public void StatusUpdate(byte[] buf, int len, bool isCompleted)
+        public void StatusUpdate(byte[] buf, long len, bool isCompleted)
         {
             if (xferRate > ProgressBar.Maximum)
                 ProgressBar.Maximum = (int)(xferRate * 1.25);
 
             ProgressBar.Value = (int)xferRate;
-            ThroughputLabel.Text = ProgressBar.Value.ToString();
+            ThroughputLabel.Text = String.Format("{0} KB/s;   {1} bytes received.", ProgressBar.Value, len);
 
-            txtData.Text = BitConverter.ToString(buf, 0, len);
+            txtData.Text = BitConverter.ToString(buf, 0, (int)len);
 
             if (isCompleted)
             {
