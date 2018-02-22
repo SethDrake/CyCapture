@@ -27,7 +27,7 @@
 #include <fx2lafw.h>
 #include <gpif-acquisition.h>
 
-__bit gpif_acquiring;
+enum gpif_status gpif_acquiring = STOPPED;
 
 static void gpif_reset_waveforms(void)
 {
@@ -117,7 +117,8 @@ void gpif_init_la(void)
 	 * (not inverted), and using async sampling.
 	 */
 	//IFCONFIG = 0x4e; //0xee
-	IFCONFIG = 0x4F;
+	//IFCONFIG = 0x42;
+	IFCONFIG = 0xEE;
 
 	/* Abort currently executing GPIF waveform (if any). */
 	GPIFABORT = 0xff;
@@ -166,7 +167,7 @@ static void gpif_make_delay_state(volatile BYTE *pSTATE, uint8_t delay)
 	pSTATE[24] = 0x00;
 }
 
-static void gpid_make_data_dp_state(volatile BYTE *pSTATE)
+static void gpif_make_data_dp_state(volatile BYTE *pSTATE)
 {
 	/*
 	 * BRANCH
@@ -195,7 +196,7 @@ static void gpid_make_data_dp_state(volatile BYTE *pSTATE)
 	pSTATE[24] = (6 << 3) | (6 << 0);
 }
 
-bool gpif_acquisition_start(const struct cmd_start_acquisition *cmd)
+bool gpif_acquisition_prepare(const struct cmd_start_acquisition *cmd)
 {
 //	int i;
 	volatile BYTE *pSTATE = &GPIF_WAVE_DATA;
@@ -222,9 +223,17 @@ bool gpif_acquisition_start(const struct cmd_start_acquisition *cmd)
 		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 
-	/* Populate S2 - the decision point. */
-	gpid_make_data_dp_state(pSTATE++);
+	/* Populate S1 - the decision point. */
+	gpif_make_data_dp_state(pSTATE++);
 
+	/* Update the status. */
+	gpif_acquiring = PREPARED;
+
+	return true;
+}
+
+void gpif_acquisition_start(void)
+{
 	/* Execute the whole GPIF waveform once. */
 	gpif_set_tc16(1);
 
@@ -232,9 +241,7 @@ bool gpif_acquisition_start(const struct cmd_start_acquisition *cmd)
 	gpif_fifo_read(GPIF_EP2);
 
 	/* Update the status. */
-	gpif_acquiring = TRUE;
-
-	return true;
+	gpif_acquiring = RUNNING;
 }
 
 bool switchPortAPins(uint8_t val)
@@ -248,7 +255,7 @@ bool switchPortAPins(uint8_t val)
 void gpif_poll(void)
 {
 	/* Detect if acquisition has completed. */
-	if (gpif_acquiring && (GPIFTRIG & 0x80)) {
+	if ((gpif_acquiring == RUNNING) && (GPIFTRIG & 0x80)) {
 		/* Activate NAK-ALL to avoid race conditions. */
 		FIFORESET = 0x80;
 		SYNCDELAY();
@@ -269,6 +276,6 @@ void gpif_poll(void)
 		FIFORESET = 0x00;
 		SYNCDELAY();
 
-		gpif_acquiring = FALSE;
+		gpif_acquiring = STOPPED;
 	}
 }

@@ -54,12 +54,30 @@ BYTE vendor_command;
 static void setup_endpoints(void)
 {
 	/* Setup EP2 (IN). */
+	/* 
+		Direction: 
+		  1 = IN 
+		  0 = OUT
+		Type: 
+		 00 = invalid 
+		 01 = ISOCHRONOUS (EP2,4,6,8 only) 
+		 10 = BULK (default) 
+		 11 = INTERRUPT
+		Size:
+		 1 = 1024
+         0 = 512		 
+		Buffering, EP2 and EP6 only:
+         00 = quad
+		 01 = invalid
+		 10 = double (default)
+		 11 = triple		
+	*/
 	EP2CFG = (1 << 7) |		  /* EP is valid/activated */
-		 (1 << 6) |		  /* EP direction: IN */
-		 (1 << 5) | (0 << 4) |	  /* EP Type: bulk */
-		 (1 << 3) |		  /* EP buffer size: 1024 */
-		 (0 << 2) |		  /* Reserved. */
-		 (0 << 1) | (0 << 0);	  /* EP buffering: quad buffering */
+			 (1 << 6) |		  /* EP direction: IN */
+			 (1 << 5) | (0 << 4) |	  /* EP Type: bulk */
+			 (1 << 3) |		  /* EP buffer size: 1024 */
+			 (0 << 2) |		  /* Reserved. */
+			 (0 << 1) | (0 << 0);	  /* EP buffering: quad buffering */
 	SYNCDELAY();
 
 	/* Disable all other EPs (EP1, EP4, EP6, and EP8). */
@@ -76,7 +94,7 @@ static void setup_endpoints(void)
 
 	/* EP2: Reset the FIFOs. */
 	/* Note: RESETFIFO() gets the EP number WITHOUT bit 7 set/cleared. */
-	RESETFIFO(0x02)
+	RESETFIFO(0x02);
 
 	/* EP2: Enable AUTOIN mode. Set FIFO width to 8bits. */
 	EP2FIFOCFG = bmAUTOIN;
@@ -102,7 +120,9 @@ static void send_fw_version(void)
 
 	/* Send the message. */
 	EP0BCH = 0;
+	SYNCDELAY();
 	EP0BCL = sizeof(struct version_info);
+	SYNCDELAY();
 }
 
 static void send_revid_version(void)
@@ -115,7 +135,9 @@ static void send_revid_version(void)
 
 	/* Send the message. */
 	EP0BCH = 0;
+	SYNCDELAY();
 	EP0BCL = 1;
+	SYNCDELAY();
 }
 
 BOOL handle_vendorcommand(BYTE cmd)
@@ -125,6 +147,7 @@ BOOL handle_vendorcommand(BYTE cmd)
 	case CMD_START:
 		vendor_command = cmd;
 		EP0BCL = 0;
+		SYNCDELAY();
 		return TRUE;
 		break;
 	case CMD_GET_FW_VERSION:
@@ -138,6 +161,7 @@ BOOL handle_vendorcommand(BYTE cmd)
 	case CMD_SET_PORTA:
 		switchPortAPins(SETUPDAT[2]);
 		EP0BCL = 0;
+		SYNCDELAY();
 		return TRUE;
 		break;		
 	}
@@ -195,6 +219,36 @@ void sudav_isr(void) __interrupt SUDAV_ISR
 {
 	got_sud = TRUE;
 	CLEAR_SUDAV();
+}
+
+/* IN BULK NAK - the host started requesting data. */
+void ibn_isr(void) __interrupt IBN_ISR
+{
+	/*
+	 * If the IBN interrupt is not disabled, clearing
+	 * does not work. See AN78446, 6.2.
+	 */
+	BYTE ibnsave = IBNIE;
+	IBNIE = 0;
+	CLEAR_USBINT();
+
+	/*
+	 * If the host sent the START command, start the GPIF
+	 * engine. The host will repeat the BULK IN in the next
+	 * microframe.
+	 */
+	if ((IBNIRQ & bmEP2IBN) && (gpif_acquiring == PREPARED)) {
+		gpif_acquisition_start();
+	}
+
+	/* Clear IBN flags for all EPs. */
+	IBNIRQ = 0xff;
+
+	NAKIRQ = bmIBN;
+	SYNCDELAY();
+
+	IBNIE = ibnsave;
+	SYNCDELAY();
 }
 
 void sof_isr(void) __interrupt SOF_ISR __using 1
@@ -259,25 +313,14 @@ void fx2lafw_poll(void)
 				break;
 
 			if (EP0BCL == sizeof(struct cmd_start_acquisition)) {
-				gpif_acquisition_start(
+				switchPortAPins(0x01);
+				gpif_acquisition_prepare(
 				 (const struct cmd_start_acquisition *)EP0BUF);
 			}
 
 			/* Acknowledge the vendor command. */
 			vendor_command = 0;
 			break;
-		/*case CMD_SET_CTL_REG:
-		
-			switchCtlPins(0x00);
-
-			vendor_command = 0;
-			break;
-		case CMD_SET_CTL_REG_2:
-		
-			switchCtlPins(0xFF);
-
-			vendor_command = 0;
-			break;	*/
 		default:
 			/* Unimplemented command. */
 			vendor_command = 0;

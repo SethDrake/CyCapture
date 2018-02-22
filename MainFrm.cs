@@ -41,8 +41,8 @@ namespace CyCapture
 
         USBDeviceList usbDevices;
         CyUSBDevice MyDevice;
-        CyUSBEndPoint ControlEndPoint;
-        CyUSBEndPoint BulkInEndPoint;
+        CyControlEndPoint ControlEndPoint;
+        CyBulkEndPoint BulkInEndPoint;
 
         DateTime t1, t2;
         TimeSpan elapsed;
@@ -58,7 +58,7 @@ namespace CyCapture
         bool bRunning;
 
         // These are  needed for Thread to update the UI
-        delegate void UpdateUICallback(byte[] buf, int len);
+        delegate void UpdateUICallback(byte[] buf, int len, bool isCompleted);
         UpdateUICallback updateUI;
         private TextBox txtDeviceName;
         private Label lblVer;
@@ -177,21 +177,21 @@ namespace CyCapture
                     GetEndpointsOfNode(node);
                 else
                 {
-                    CyUSBEndPoint ept = node.Tag as CyUSBEndPoint;
-                    if (ept != null)
+                    CyControlEndPoint ctrlEp = node.Tag as CyControlEndPoint;
+                    CyBulkEndPoint bulkEp = node.Tag as CyBulkEndPoint;
+
+                    if (ctrlEp != null)
                     {
-                        if (node.Text.Contains("Control"))
+                        ControlEndPoint = ctrlEp;
+                    }
+
+                    if (bulkEp != null && bulkEp.bIn)
+                    {
+                        BulkInEndPoint = bulkEp;
+                        CyUSBInterface ifc = node.Parent.Tag as CyUSBInterface;
+                        if (ifc != null)
                         {
-                            ControlEndPoint = ept;
-                        }
-                        else
-                        {
-                            BulkInEndPoint = ept;
-                            CyUSBInterface ifc = node.Parent.Tag as CyUSBInterface;
-                            if (ifc != null)
-                            {
-                                MyDevice.AltIntfc = ifc.bAlternateSetting;
-                            }
+                            MyDevice.AltIntfc = ifc.bAlternateSetting;
                         }
                     }
                 }
@@ -504,8 +504,8 @@ namespace CyCapture
             ctrlEp.Index = 0x0000;
             ctrlEp.TimeOut = 1000;
 
-            byte[] buf = new byte[2];
             int len = 2;
+            byte[] buf = new byte[len];
 
             bool isOk = ctrlEp.XferData(ref buf, ref len);
             return isOk ? String.Format("{0}.{1}", buf[0], buf[1]) : String.Empty;
@@ -526,8 +526,8 @@ namespace CyCapture
             ctrlEp.Index = 0x0000;
             ctrlEp.TimeOut = 1000;
 
-            byte[] buf = new byte[1];
             int len = 1;
+            byte[] buf = new byte[len];
 
             bool isOk = ctrlEp.XferData(ref buf, ref len);
             return isOk ? String.Format("{0}", buf[0]) : String.Empty;
@@ -539,7 +539,7 @@ namespace CyCapture
             {
                 return false;
             }
-            var ctrlEp = (CyControlEndPoint)ControlEndPoint;
+            var ctrlEp = ControlEndPoint;
             ctrlEp.Target = CyConst.TGT_DEVICE;
             ctrlEp.Direction = CyConst.DIR_FROM_DEVICE;
             ctrlEp.ReqType = CyConst.REQ_VENDOR;
@@ -548,8 +548,8 @@ namespace CyCapture
             ctrlEp.Index = 0x0000;
             ctrlEp.TimeOut = 1000;
 
-            byte[] buf = new byte[1];
             int len = 1;
+            byte[] buf = new byte[len];
 
             bool isOk = ctrlEp.XferData(ref buf, ref len);
             return isOk;
@@ -562,22 +562,23 @@ namespace CyCapture
                 return false;
             }
 
-            var ctrlEp = (CyControlEndPoint)ControlEndPoint;
+
+            var ctrlEp = ControlEndPoint;
             ctrlEp.Target = CyConst.TGT_DEVICE;
             ctrlEp.Direction = CyConst.DIR_TO_DEVICE;
             ctrlEp.ReqType = CyConst.REQ_VENDOR;
             ctrlEp.ReqCode = CMD_START;
             ctrlEp.Value = 0x0000;
             ctrlEp.Index = 0x0000;
-            ctrlEp.TimeOut = 1000;
+            ctrlEp.TimeOut = 2000;
 
             var initStruct = new cmd_start_acquisition_struct();
             initStruct.flags = CMD_START_FLAGS_SAMPLE_8BIT;// | CMD_START_FLAGS_INV_CLK;
             initStruct.sample_delay_h = 0;
             initStruct.sample_delay_l = 0;
 
-            byte[] buf = new byte[3];
             int len = 3;
+            byte[] buf = new byte[len];
 
             GCHandle h = GCHandle.Alloc(initStruct, GCHandleType.Pinned);
             Marshal.Copy(h.AddrOfPinnedObject(), buf, 0, len);
@@ -599,7 +600,7 @@ namespace CyCapture
             QueueSz = 1;
             PPX = ppx;
 
-            BulkInEndPoint.XferSize = BufSz;
+            //BulkInEndPoint.XferSize = BufSz;
         }
 
         private void StartReceiveData()
@@ -614,21 +615,19 @@ namespace CyCapture
         {
             if (bRunning)
             {
-                if (tListen == null || tListen.IsAlive)
+                bRunning = false;
+                if (tListen != null)
                 {
-                    StartBtn.Text = "Start";
-                    bRunning = false;
-
-                    if (tListen != null)
+                    if (tListen.IsAlive)
                     {
                         tListen.Abort();
                         //tListen.Join();
-                        tListen = null;
                     }
-
-                    StartBtn.BackColor = Color.Aquamarine;
+                    tListen = null;
                 }
             }
+            StartBtn.Text = "Start";
+            StartBtn.BackColor = Color.Aquamarine;
         }
 
         /*Summary
@@ -668,15 +667,16 @@ namespace CyCapture
         /*Summary
           Data Xfer Thread entry point. Starts the thread on Start Button click 
         */
-        public unsafe void XferThread()
+        public void XferThread()
         {
             byte[] buf = new byte[BufSz];
-            int len = 0;
+            int len = BufSz;
 
             var inEp = BulkInEndPoint;
 
-            inEp.XferMode = XMODE.BUFFERED;
-            inEp.TimeOut = 500;
+            //inEp.XferMode = XMODE.BUFFERED;
+            inEp.XferSize = BufSz;
+            inEp.TimeOut = 2000;
 
             t1 = DateTime.Now;
 
@@ -684,10 +684,11 @@ namespace CyCapture
             {
                 try
                 {
-                    bool isOk = inEp.XferData(ref buf, ref len);
+                    bool isOk = inEp.XferData(ref buf, ref len, false);
                     if (!isOk)
                     {
-                        Array.Clear(buf, 0, BufSz);
+                        bRunning = false;
+                        //Array.Clear(buf, 0, BufSz);
                     }
                 }
                 catch (Exception)
@@ -696,14 +697,18 @@ namespace CyCapture
                     this.Invoke(handleException);
                 }
 
-                t2 = DateTime.Now;
-                elapsed = t2 - t1;
-                xferRate = (long)(len / elapsed.TotalMilliseconds);
-                xferRate = xferRate / (int)100 * (int)100;
-                this.Invoke(updateUI, buf, len);
+                if (len > 0)
+                {
+                    t2 = DateTime.Now;
+                    elapsed = t2 - t1;
+                    xferRate = (long) (len / elapsed.TotalMilliseconds);
+                    xferRate = xferRate / (int) 100 * (int) 100;
+                }
+                this.Invoke(updateUI, buf, len, false);
                 Thread.Sleep(1);
             }
 
+            this.Invoke(updateUI, buf, len, true);
 
             // Setup the queue buffers
             /*byte[][] cmdBufs = new byte[QueueSz][];
@@ -829,7 +834,7 @@ namespace CyCapture
         /*Summary
           The callback routine delegated to updateUI.
         */
-        public void StatusUpdate(byte[] buf, int len)
+        public void StatusUpdate(byte[] buf, int len, bool isCompleted)
         {
             if (xferRate > ProgressBar.Maximum)
                 ProgressBar.Maximum = (int)(xferRate * 1.25);
@@ -838,6 +843,12 @@ namespace CyCapture
             ThroughputLabel.Text = ProgressBar.Value.ToString();
 
             txtData.Text = BitConverter.ToString(buf, 0, len);
+
+            if (isCompleted)
+            {
+                StartBtn.Text = "Start";
+                StartBtn.BackColor = Color.Aquamarine;
+            }
         }
 
         private void btnSetPortA_Click(object sender, EventArgs e)

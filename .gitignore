@@ -286,3 +286,6 @@ __pycache__/
 *.btm.cs
 *.odx.cs
 *.xsd.cs
+/sigrok-firmware-fx2lafw/fx2lib/lib/*.dirstamp
+/sigrok-firmware-fx2lafw/fx2lib/lib/interrupts/*.dirstamp
+/sigrok-firmware-fx2lafw/hw/cypress-fx2/*.dirstamp
