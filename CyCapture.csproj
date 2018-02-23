@@ -157,6 +157,14 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <Content Include="sigrok-firmware-fx2lafw\fx2lafw.c" />
+    <Content Include="sigrok-firmware-fx2lafw\gpif-acquisition.c" />
+    <Content Include="sigrok-firmware-fx2lafw\include\command.h" />
+    <Content Include="sigrok-firmware-fx2lafw\include\fx2lafw.h" />
+    <Content Include="sigrok-firmware-fx2lafw\include\gpif-acquisition.h" />
+  </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PreBuildEvent>

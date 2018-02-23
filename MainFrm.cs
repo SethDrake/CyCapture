@@ -593,17 +593,10 @@ namespace CyCapture
 
         private void ConfigureInEp()
         {
-            int maxLen = 0x10000; // 64K
-            int ppx = maxLen / BulkInEndPoint.MaxPktSize / 8 * 8;
-            if (MyDevice.bHighSpeed && (BulkInEndPoint.Attributes == 1) && (ppx < 8))
-            {
-                ppx = 8;
-            }
-            BufSz = 512;//BulkInEndPoint.MaxPktSize * ppx;
+            int ppx = 128;
+            BufSz = BulkInEndPoint.MaxPktSize * ppx;
             QueueSz = 1;
             PPX = ppx;
-
-            //BulkInEndPoint.XferSize = BufSz;
         }
 
         private void StartReceiveData()
@@ -675,14 +668,12 @@ namespace CyCapture
             int totallen = 65536;
             byte[] totalbytes = new byte[totallen];
 
-            byte[] buf = new byte[BufSz];
-            int len = BufSz;
+            int len = 512;
+            byte[] buf = new byte[len];
 
-            var inEp = BulkInEndPoint;
-
-            //inEp.XferMode = XMODE.BUFFERED;
-            inEp.XferSize = BufSz;
-            inEp.TimeOut = 2000;
+            BulkInEndPoint.XferMode = XMODE.BUFFERED;
+            BulkInEndPoint.XferSize = len;
+            BulkInEndPoint.TimeOut = 2000;
 
             var sw = new Stopwatch();
 
@@ -692,12 +683,17 @@ namespace CyCapture
 
             while (bRunning)
             {
-                bool isOk = inEp.XferData(ref buf, ref len, true);
+                bool isOk = BulkInEndPoint.XferData(ref buf, ref len, false);
                 if (isOk)
                 {
+                    var ems = sw.ElapsedMilliseconds;
+                    if (ems == 0)
+                    {
+                        ems = 1;
+                    }
                     Array.Copy(buf, 0, totalbytes, i, len);
                     i += len;
-                    xferRate = (long)(i / sw.ElapsedMilliseconds);
+                    xferRate = (i / ems);
                 }
                 else
                 {

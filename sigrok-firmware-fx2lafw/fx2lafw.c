@@ -75,7 +75,7 @@ static void setup_endpoints(void)
 	EP2CFG = (1 << 7) |		  /* EP is valid/activated */
 			 (1 << 6) |		  /* EP direction: IN */
 			 (1 << 5) | (0 << 4) |	  /* EP Type: bulk */
-			 (1 << 3) |		  /* EP buffer size: 1024 */
+			 (0 << 3) |		  /* EP buffer size: 512 */
 			 (0 << 2) |		  /* Reserved. */
 			 (0 << 1) | (0 << 0);	  /* EP buffering: quad buffering */
 	SYNCDELAY();
@@ -95,6 +95,10 @@ static void setup_endpoints(void)
 	/* EP2: Reset the FIFOs. */
 	/* Note: RESETFIFO() gets the EP number WITHOUT bit 7 set/cleared. */
 	RESETFIFO(0x02);
+
+	// Reset data toggle to 0
+	/*TOGCTL = 0x12;  // EP2 IN
+	TOGCTL = 0x32;  // EP2 IN Reset*/
 
 	/* EP2: Enable AUTOIN mode. Set FIFO width to 8bits. */
 	EP2FIFOCFG = bmAUTOIN;
@@ -221,6 +225,28 @@ void sudav_isr(void) __interrupt SUDAV_ISR
 	CLEAR_SUDAV();
 }
 
+void sutok_isr(void) __interrupt SUTOK_ISR
+{
+	CLEAR_SUTOK();
+}
+
+void sof_isr(void) __interrupt SOF_ISR
+{
+	CLEAR_SOF();
+}
+
+void usbreset_isr(void) __interrupt USBRESET_ISR
+{
+	handle_hispeed(FALSE);
+	CLEAR_USBRESET();
+}
+
+void hispeed_isr(void) __interrupt HISPEED_ISR
+{
+	handle_hispeed(TRUE);
+	CLEAR_HISPEED();
+}
+
 /* IN BULK NAK - the host started requesting data. */
 void ibn_isr(void) __interrupt IBN_ISR
 {
@@ -249,23 +275,6 @@ void ibn_isr(void) __interrupt IBN_ISR
 
 	IBNIE = ibnsave;
 	SYNCDELAY();
-}
-
-void sof_isr(void) __interrupt SOF_ISR __using 1
-{
-	CLEAR_SOF();
-}
-
-void usbreset_isr(void) __interrupt USBRESET_ISR
-{
-	handle_hispeed(FALSE);
-	CLEAR_USBRESET();
-}
-
-void hispeed_isr(void) __interrupt HISPEED_ISR
-{
-	handle_hispeed(TRUE);
-	CLEAR_HISPEED();
 }
 
 void fx2lafw_init(void)

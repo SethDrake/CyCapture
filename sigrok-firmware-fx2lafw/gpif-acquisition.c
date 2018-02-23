@@ -118,7 +118,7 @@ void gpif_init_la(void)
 	 */
 	//IFCONFIG = 0x4e; //0xee
 	//IFCONFIG = 0x42;
-	IFCONFIG = 0xEE;
+	IFCONFIG = 0xC6;
 
 	/* Abort currently executing GPIF waveform (if any). */
 	GPIFABORT = 0xff;
@@ -255,7 +255,7 @@ bool switchPortAPins(uint8_t val)
 void gpif_poll(void)
 {
 	/* Detect if acquisition has completed. */
-	if ((gpif_acquiring == RUNNING) && (GPIFTRIG & 0x80)) {
+	if ((gpif_acquiring == RUNNING) && (GPIFTRIG & 0x80) && FALSE) {
 		/* Activate NAK-ALL to avoid race conditions. */
 		FIFORESET = 0x80;
 		SYNCDELAY();
