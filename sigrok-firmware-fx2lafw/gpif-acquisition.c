@@ -117,8 +117,7 @@ void gpif_init_la(void)
 	 * (not inverted), and using async sampling.
 	 */
 	//IFCONFIG = 0x4e; //0xee
-	//IFCONFIG = 0x42;
-	IFCONFIG = 0xC6;
+	IFCONFIG = 0x42;
 
 	/* Abort currently executing GPIF waveform (if any). */
 	GPIFABORT = 0xff;
@@ -213,9 +212,9 @@ bool gpif_acquisition_prepare(const struct cmd_start_acquisition *cmd)
 	SYNCDELAY();
 
 	/* Set IFCONFIG to the correct clock source. */
-	if (cmd->flags & CMD_START_FLAGS_INV_CLK) {
+	/*if (cmd->flags & CMD_START_FLAGS_INV_CLK) {
 		IFCONFIG = 0x5e;
-	}
+	}*/
 	/* Populate delay states. */
 		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
@@ -230,6 +229,25 @@ bool gpif_acquisition_prepare(const struct cmd_start_acquisition *cmd)
 	gpif_acquiring = PREPARED;
 
 	return true;
+}
+
+void gpif_acquisition_restart(void)
+{
+	//	int i;
+	volatile BYTE *pSTATE = &GPIF_WAVE_DATA;
+
+	/* Populate delay states. */
+	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
+	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
+	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
+	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
+	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
+
+	/* Populate S1 - the decision point. */
+	gpif_make_data_dp_state(pSTATE++);
+
+	/* Update the status. */
+	gpif_acquiring = PREPARED;
 }
 
 void gpif_acquisition_start(void)
@@ -255,7 +273,7 @@ bool switchPortAPins(uint8_t val)
 void gpif_poll(void)
 {
 	/* Detect if acquisition has completed. */
-	if ((gpif_acquiring == RUNNING) && (GPIFTRIG & 0x80) && FALSE) {
+	if ((gpif_acquiring == RUNNING) && (GPIFTRIG & 0x80)) {
 		/* Activate NAK-ALL to avoid race conditions. */
 		FIFORESET = 0x80;
 		SYNCDELAY();
@@ -279,5 +297,7 @@ void gpif_poll(void)
 		switchPortAPins(0x00);
 
 		gpif_acquiring = STOPPED;
+
+		//gpif_acquisition_restart();
 	}
 }

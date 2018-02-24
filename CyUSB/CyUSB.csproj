@@ -1,32 +1,35 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="12.0">
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="14.0">
   <PropertyGroup>
     <ProjectType>Local</ProjectType>
     <ProductVersion>9.0.30729</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{D5C010EA-096A-485B-887B-DC8A48809827}</ProjectGuid>
+    <ProjectGuid>{2839C09D-B34F-42F9-A11B-30C3988291E3}</ProjectGuid>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ApplicationIcon>
     </ApplicationIcon>
     <AssemblyKeyContainerName>
     </AssemblyKeyContainerName>
-    <AssemblyName>CyCapture</AssemblyName>
-    <AssemblyOriginatorKeyFile>
-    </AssemblyOriginatorKeyFile>
+    <AssemblyName>CyUSB</AssemblyName>
+    <AssemblyOriginatorKeyFile>cyusb.snk</AssemblyOriginatorKeyFile>
     <DefaultClientScript>JScript</DefaultClientScript>
     <DefaultHTMLPageLayout>Grid</DefaultHTMLPageLayout>
     <DefaultTargetSchema>IE50</DefaultTargetSchema>
     <DelaySign>false</DelaySign>
-    <OutputType>WinExe</OutputType>
-    <RootNamespace>CyCapture</RootNamespace>
+    <OutputType>Library</OutputType>
+    <RootNamespace>CyUSB</RootNamespace>
     <RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
-    <StartupObject>CyCapture.MainFrm</StartupObject>
+    <StartupObject>
+    </StartupObject>
     <FileUpgradeFlags>
     </FileUpgradeFlags>
     <UpgradeBackupLocation>
     </UpgradeBackupLocation>
+    <SignAssembly>true</SignAssembly>
     <OldToolsVersion>3.5</OldToolsVersion>
+    <TargetFrameworkVersion>v4.7.1</TargetFrameworkVersion>
+    <TargetFrameworkProfile />
     <PublishUrl>publish\</PublishUrl>
     <Install>true</Install>
     <InstallFrom>Disk</InstallFrom>
@@ -42,11 +45,9 @@
     <IsWebBootstrapper>false</IsWebBootstrapper>
     <UseApplicationTrust>false</UseApplicationTrust>
     <BootstrapperEnabled>true</BootstrapperEnabled>
-    <TargetFrameworkVersion>v4.7.1</TargetFrameworkVersion>
-    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <OutputPath>bin\Debug\</OutputPath>
+    <OutputPath>lib\Debug\</OutputPath>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <BaseAddress>285212672</BaseAddress>
     <CheckForOverflowUnderflow>false</CheckForOverflowUnderflow>
@@ -63,14 +64,15 @@
     <Optimize>false</Optimize>
     <RegisterForComInterop>false</RegisterForComInterop>
     <RemoveIntegerChecks>false</RemoveIntegerChecks>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningLevel>4</WarningLevel>
     <DebugType>full</DebugType>
     <ErrorReport>prompt</ErrorReport>
+    <PlatformTarget>AnyCPU</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <OutputPath>bin\Release\</OutputPath>
+    <OutputPath>lib\</OutputPath>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <BaseAddress>285212672</BaseAddress>
     <CheckForOverflowUnderflow>false</CheckForOverflowUnderflow>
@@ -84,7 +86,7 @@
     <NoStdLib>false</NoStdLib>
     <NoWarn>
     </NoWarn>
-    <Optimize>false</Optimize>
+    <Optimize>true</Optimize>
     <RegisterForComInterop>false</RegisterForComInterop>
     <RemoveIntegerChecks>false</RemoveIntegerChecks>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
@@ -111,60 +113,76 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="AssemblyInfo.cs" />
-    <Compile Include="MainFrm.cs">
+    <Compile Include="AssemblyInfo.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="CyDefs.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="CyEndPoints.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="CyFX2Device.cs" />
+    <Compile Include="CyFX3Device.cs" />
+    <Compile Include="CyHidDevice.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="CyHidReport.cs" />
+    <Compile Include="CyScript.cs" />
+    <Compile Include="CyUSBBOS.cs" />
+    <Compile Include="CyUSBConfig.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="CyUSBDevice.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="CyUSBInterface.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="CyUSBStorDevice.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="MsgForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <EmbeddedResource Include="MainFrm.resx">
-      <DependentUpon>MainFrm.cs</DependentUpon>
+    <Compile Include="PInvoke.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="USBDevice.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="USBDeviceList.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Util.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <EmbeddedResource Include="CyEndPoints.resx">
+      <DependentUpon>CyEndPoints.cs</DependentUpon>
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
+    <EmbeddedResource Include="CyUSBDevice.resx">
+      <DependentUpon>CyUSBDevice.cs</DependentUpon>
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
+    <EmbeddedResource Include="CyUSBInterface.resx">
+      <DependentUpon>CyUSBInterface.cs</DependentUpon>
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
+    <EmbeddedResource Include="MsgForm.resx">
+      <DependentUpon>MsgForm.cs</DependentUpon>
       <SubType>Designer</SubType>
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
-    <BootstrapperPackage Include="Microsoft.Net.Client.3.5">
-      <Visible>False</Visible>
-      <ProductName>.NET Framework Client Profile</ProductName>
-      <Install>false</Install>
-    </BootstrapperPackage>
-    <BootstrapperPackage Include="Microsoft.Net.Framework.2.0">
-      <Visible>False</Visible>
-      <ProductName>.NET Framework 2.0 %28x86%29</ProductName>
-      <Install>true</Install>
-    </BootstrapperPackage>
-    <BootstrapperPackage Include="Microsoft.Net.Framework.3.0">
-      <Visible>False</Visible>
-      <ProductName>.NET Framework 3.0 %28x86%29</ProductName>
-      <Install>false</Install>
-    </BootstrapperPackage>
-    <BootstrapperPackage Include="Microsoft.Net.Framework.3.5">
-      <Visible>False</Visible>
-      <ProductName>.NET Framework 3.5</ProductName>
-      <Install>false</Install>
-    </BootstrapperPackage>
+    <None Include="cyusb.snk" />
+  </ItemGroup>
+  <ItemGroup>
     <BootstrapperPackage Include="Microsoft.Net.Framework.3.5.SP1">
       <Visible>False</Visible>
       <ProductName>.NET Framework 3.5 SP1</ProductName>
-      <Install>false</Install>
+      <Install>true</Install>
     </BootstrapperPackage>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="app.config" />
-    <None Include="fx2lafw-cypress-fx2.hex">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="CyUSB\CyUSB.csproj">
-      <Project>{2839c09d-b34f-42f9-a11b-30c3988291e3}</Project>
-      <Name>CyUSB</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="sigrok-firmware-fx2lafw\fx2lafw.c" />
-    <Content Include="sigrok-firmware-fx2lafw\gpif-acquisition.c" />
-    <Content Include="sigrok-firmware-fx2lafw\include\command.h" />
-    <Content Include="sigrok-firmware-fx2lafw\include\fx2lafw.h" />
-    <Content Include="sigrok-firmware-fx2lafw\include\gpif-acquisition.h" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>

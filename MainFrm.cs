@@ -1,8 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Globalization;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Threading;
@@ -69,6 +73,7 @@ namespace CyCapture
         private Label lblPortA;
         private TextBox txtPortValue;
         private Button btnSetPortA;
+        private PictureBox canvas;
 
         // These are needed to close the app from the Thread exception(exception handling)
         delegate void ExceptionCallback();
@@ -257,7 +262,9 @@ namespace CyCapture
             this.lblPortA = new System.Windows.Forms.Label();
             this.txtPortValue = new System.Windows.Forms.TextBox();
             this.btnSetPortA = new System.Windows.Forms.Button();
+            this.canvas = new System.Windows.Forms.PictureBox();
             this.groupBox1.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.canvas)).BeginInit();
             this.SuspendLayout();
             // 
             // mainMenu
@@ -375,11 +382,13 @@ namespace CyCapture
             // 
             // txtData
             // 
+            this.txtData.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
             this.txtData.Location = new System.Drawing.Point(21, 197);
             this.txtData.Multiline = true;
             this.txtData.Name = "txtData";
             this.txtData.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.txtData.Size = new System.Drawing.Size(330, 189);
+            this.txtData.Size = new System.Drawing.Size(330, 152);
             this.txtData.TabIndex = 20;
             // 
             // lblPortA
@@ -410,10 +419,25 @@ namespace CyCapture
             this.btnSetPortA.UseVisualStyleBackColor = false;
             this.btnSetPortA.Click += new System.EventHandler(this.btnSetPortA_Click);
             // 
+            // canvas
+            // 
+            this.canvas.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
+            | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.canvas.BackColor = System.Drawing.SystemColors.Window;
+            this.canvas.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.canvas.Location = new System.Drawing.Point(21, 366);
+            this.canvas.Name = "canvas";
+            this.canvas.Size = new System.Drawing.Size(330, 183);
+            this.canvas.SizeMode = System.Windows.Forms.PictureBoxSizeMode.CenterImage;
+            this.canvas.TabIndex = 24;
+            this.canvas.TabStop = false;
+            // 
             // MainFrm
             // 
             this.AutoScaleBaseSize = new System.Drawing.Size(5, 13);
-            this.ClientSize = new System.Drawing.Size(374, 398);
+            this.ClientSize = new System.Drawing.Size(374, 561);
+            this.Controls.Add(this.canvas);
             this.Controls.Add(this.btnSetPortA);
             this.Controls.Add(this.txtPortValue);
             this.Controls.Add(this.lblPortA);
@@ -431,6 +455,7 @@ namespace CyCapture
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.MainFrm_FormClosing);
             this.Load += new System.EventHandler(this.MainFrm_Load);
             this.groupBox1.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.canvas)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -498,7 +523,7 @@ namespace CyCapture
             {
                 return String.Empty;
             }
-            var ctrlEp = (CyControlEndPoint)ControlEndPoint;
+            var ctrlEp = ControlEndPoint;
             ctrlEp.Target = CyConst.TGT_DEVICE;
             ctrlEp.Direction = CyConst.DIR_FROM_DEVICE;
             ctrlEp.ReqType = CyConst.REQ_VENDOR;
@@ -520,7 +545,7 @@ namespace CyCapture
             {
                 return String.Empty;
             }
-            var ctrlEp = (CyControlEndPoint)ControlEndPoint;
+            var ctrlEp = ControlEndPoint;
             ctrlEp.Target = CyConst.TGT_DEVICE;
             ctrlEp.Direction = CyConst.DIR_FROM_DEVICE;
             ctrlEp.ReqType = CyConst.REQ_VENDOR;
@@ -641,6 +666,9 @@ namespace CyCapture
                 StartBtn.Text = "Stop";
                 StartBtn.BackColor = Color.Pink;
 
+                xferRate = 0;
+                StatusUpdate(new byte[0], 0, false);
+
                 ConfigureInEp();
                 if (StartCapture())
                 {
@@ -691,9 +719,15 @@ namespace CyCapture
                     {
                         ems = 1;
                     }
+                    //Buffer.BlockCopy(buf, 0, totalbytes, i, len);
                     Array.Copy(buf, 0, totalbytes, i, len);
                     i += len;
                     xferRate = (i / ems);
+
+                    if (i >= totallen)
+                    {
+                        bRunning = false;
+                    }
                 }
                 else
                 {
@@ -839,7 +873,37 @@ namespace CyCapture
             ProgressBar.Value = (int)xferRate;
             ThroughputLabel.Text = String.Format("{0} KB/s;   {1} bytes received.", ProgressBar.Value, len);
 
-            txtData.Text = BitConverter.ToString(buf, 0, (int)len);
+            txtData.Text = BitConverter.ToString(buf, 0, (int)len); 
+            //txtData.Text = string.Join(" ", new List<byte>(buf).Select(x => Convert.ToString(x, 2).PadLeft(8, '0')));
+
+            canvas.Image = null;
+
+            //draw function
+            if (len > 0)
+            {
+                Bitmap bitmap = new Bitmap((int)len, 256, PixelFormat.Format16bppRgb565);
+
+                //clear bitmap
+                Graphics g = Graphics.FromImage(bitmap);
+                g.Clear(Color.White);
+                g.SmoothingMode = SmoothingMode.HighQuality;
+
+                for (int i = 0; i < len; i++)
+                {
+                    int h = 255 - buf[i];
+                    //bitmap.SetPixel(i, h, Color.Black);
+                    if (i > 0)
+                    {
+                        int prevh = 255 - buf[i-1];
+                        g.DrawLine(new Pen(Color.Black), new Point(i-1, prevh), new Point(i, h));
+                    }
+                }
+                IntPtr hBitmap = bitmap.GetHbitmap();
+                canvas.Image = Image.FromHbitmap(hBitmap);
+                canvas.SizeMode = PictureBoxSizeMode.StretchImage;
+                //canvas.Width = bitmap.Width;
+                canvas.Height = bitmap.Height;
+            }
 
             if (isCompleted)
             {
