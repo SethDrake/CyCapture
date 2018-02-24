@@ -154,9 +154,9 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="CyUSB\CyUSB.csproj">
-      <Project>{2839c09d-b34f-42f9-a11b-30c3988291e3}</Project>
-      <Name>CyUSB</Name>
+    <ProjectReference Include="CaptureDevice\CaptureDevice.csproj">
+      <Project>{B9E49358-D77B-47EE-9F31-03A3E85EF414}</Project>
+      <Name>CaptureDevice</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>

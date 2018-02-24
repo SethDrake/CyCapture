@@ -1,71 +1,19 @@
 using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Globalization;
-using System.Linq;
-using System.Runtime.InteropServices;
 using System.Windows.Forms;
-using System.Threading;
-using CyUSB;
+using CaptureDevice;
 
 namespace CyCapture
 {
 
     public class MainFrm : System.Windows.Forms.Form
     {
-        private const byte CMD_GET_FW_VERSION = 0xB0;
-        private const byte CMD_START = 0xB1;
-        private const byte CMD_STOP = 0xB2;
-        private const byte CMD_GET_REVID_VERSION = 0xB3;
-        private const byte CMD_SET_OUTPUT = 0xB4;
-        private const byte CMD_SET_PORTA = 0xB5;
+        private Device captureDevice;
 
-        private const byte CMD_START_FLAGS_WIDE_POS = 5;
-        private const byte CMD_START_FLAGS_CLK_SRC_POS = 6;
-
-        private const byte CMD_START_FLAGS_SAMPLE_8BIT = (0 << CMD_START_FLAGS_WIDE_POS);
-        private const byte CMD_START_FLAGS_SAMPLE_16BIT = (1 << CMD_START_FLAGS_WIDE_POS);
-
-        private const byte CMD_START_FLAGS_CLK_30MHZ = (0 << CMD_START_FLAGS_CLK_SRC_POS);
-        private const byte CMD_START_FLAGS_CLK_48MHZ = (1 << CMD_START_FLAGS_CLK_SRC_POS);
-
-        private const byte CMD_START_FLAGS_INV_CLK_POS = 0;
-        private const byte CMD_START_FLAGS_INV_CLK = (1 << CMD_START_FLAGS_INV_CLK_POS);
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct cmd_start_acquisition_struct
-        {
-            public byte flags;
-            public byte sample_delay_h;
-            public byte sample_delay_l;
-        }
-
-        private System.Diagnostics.PerformanceCounter CpuCounter;
-
-        USBDeviceList usbDevices;
-        CyUSBDevice MyDevice;
-        CyControlEndPoint ControlEndPoint;
-        CyBulkEndPoint BulkInEndPoint;
-
-        DateTime t1, t2;
-        TimeSpan elapsed;
-        double XferBytes;
-        long xferRate;
-
-        int BufSz;
-        int QueueSz;
-        int PPX;
-
-        Thread tListen;
-        bool bRunning;
-
-        // These are  needed for Thread to update the UI
-        delegate void UpdateUICallback(byte[] buf, long len, bool isCompleted);
-        UpdateUICallback updateUI;
         private TextBox txtDeviceName;
         private Label lblVer;
         private TextBox txtVersion;
@@ -75,136 +23,18 @@ namespace CyCapture
         private Button btnSetOutputPort;
         private PictureBox canvas;
 
-        // These are needed to close the app from the Thread exception(exception handling)
-        delegate void ExceptionCallback();
-        ExceptionCallback handleException;
-
         public MainFrm()
         {
             // Required for Windows Form Designer support
             InitializeComponent();
 
-            // Setup the callback routine for updating the UI
-            updateUI = new UpdateUICallback(StatusUpdate);
+            StartBtn.Enabled = false;
 
-            // Setup the callback routine for NullReference exception handling
-            handleException = new ExceptionCallback(ThreadException);
-
-            // Create the list of USB devices attached to the CyUSB.sys driver.
-            usbDevices = new USBDeviceList(CyConst.DEVICES_CYUSB);
-
-            LoadFirmware();
-
-            //Assign event handlers for device attachment and device removal.
-            usbDevices.DeviceAttached += new EventHandler(usbDevices_DeviceAttached);
-            usbDevices.DeviceRemoved += new EventHandler(usbDevices_DeviceRemoved);
-
-            //Set and search the device with VID-PID 04b4-1003 and if found, selects the end point
-            SetDevice();
+            captureDevice = new Device();
+            captureDevice.CaptureCompleted += new EventHandler<CaptureEventArgs>(captureDevice_CaptureCompleted);
+            captureDevice.DeviceReady += new EventHandler<DeviceReadyEventArgs>(captureDevice_DeviceReady);
+            captureDevice.OpenDevice();
         }
-
-
-        void usbDevices_DeviceRemoved(object sender, EventArgs e)
-        {
-            StopProcessing();
-
-            MyDevice = null;
-            ControlEndPoint = null;
-            BulkInEndPoint = null;
-            txtDeviceName.Text = String.Empty;
-            txtVersion.Text = String.Empty;
-            SetDevice();
-        }
-
-
-        void usbDevices_DeviceAttached(object sender, EventArgs e)
-        {
-            LoadFirmware();
-            SetDevice();
-        }
-
-        private void LoadFirmware()
-        {
-            USBDevice dev = usbDevices[0x04B4, 0x8613];
-            if (dev != null)
-            {
-                var fx2lp = (CyFX2Device) dev;
-                bool isOk = fx2lp.LoadRAM("fx2lafw-cypress-fx2.hex");
-                if (!isOk)
-                {
-                    fx2lp.Reset();
-                    return;
-                }
-                Thread.Sleep(6000);
-                usbDevices = new USBDeviceList(CyConst.DEVICES_CYUSB);
-            }
-            else
-            {
-                usbDevices = new USBDeviceList(CyConst.DEVICES_CYUSB);
-                SetDevice();
-            }
-        }
-
-
-        private void SetDevice()
-        {
-            USBDevice dev = usbDevices[46084, 4099];
-            if (dev != null)
-            {
-                MyDevice = (CyUSBDevice)dev;
-                ControlEndPoint = null;
-                BulkInEndPoint = null;
-                txtDeviceName.Text = dev.FriendlyName;
-
-                GetEndpointsOfNode(MyDevice.Tree);
-                if (ControlEndPoint != null)
-                {
-                    StartBtn.Enabled = true;
-                    btnSetOutputPort.Enabled = true;
-
-                    String ver = GetFirmwareVer();
-                    String rev = GetRevision();
-                    txtVersion.Text = String.Format("Version: {0}  Revision: {1}", ver, rev);
-                }
-            }
-            else
-            {
-                StartBtn.Enabled = false;
-                btnSetOutputPort.Enabled = false;
-                txtData.Clear();
-            }
-        }
-
-
-        private void GetEndpointsOfNode(TreeNode devTree)
-        {
-            foreach (TreeNode node in devTree.Nodes)
-            {
-                if (node.Nodes.Count > 0)
-                    GetEndpointsOfNode(node);
-                else
-                {
-                    CyControlEndPoint ctrlEp = node.Tag as CyControlEndPoint;
-                    CyBulkEndPoint bulkEp = node.Tag as CyBulkEndPoint;
-
-                    if (ctrlEp != null)
-                    {
-                        ControlEndPoint = ctrlEp;
-                    }
-
-                    if (bulkEp != null && bulkEp.bIn)
-                    {
-                        BulkInEndPoint = bulkEp;
-                        CyUSBInterface ifc = node.Parent.Tag as CyUSBInterface;
-                        if (ifc != null)
-                        {
-                            MyDevice.AltIntfc = ifc.bAlternateSetting;
-                        }
-                    }
-                }
-            }
-        }
-
 
         protected override void Dispose(bool disposing)
         {
@@ -481,14 +311,9 @@ namespace CyCapture
         }
 
 
-
-        /*Summary
-           Executes on clicking Help->about
-        */
         private void AboutItem_Click(object sender, System.EventArgs e)
         {
-            string assemblyList = Util.Assemblies;
-            MessageBox.Show(assemblyList, Text);
+
         }
 
 
@@ -513,162 +338,16 @@ namespace CyCapture
         */
         private void MainFrm_FormClosing(object sender, FormClosingEventArgs e)
         {
-            if (usbDevices != null)
-                usbDevices.Dispose();
+            captureDevice.CloseDevice();
         }
 
-        private String GetFirmwareVer()
-        {
-            if (ControlEndPoint == null)
-            {
-                return String.Empty;
-            }
-            var ctrlEp = ControlEndPoint;
-            ctrlEp.Target = CyConst.TGT_DEVICE;
-            ctrlEp.Direction = CyConst.DIR_FROM_DEVICE;
-            ctrlEp.ReqType = CyConst.REQ_VENDOR;
-            ctrlEp.ReqCode = CMD_GET_FW_VERSION;
-            ctrlEp.Value = 0x0000;
-            ctrlEp.Index = 0x0000;
-            ctrlEp.TimeOut = 1000;
-
-            int len = 2;
-            byte[] buf = new byte[len];
-
-            bool isOk = ctrlEp.XferData(ref buf, ref len);
-            return isOk ? String.Format("{0}.{1}", buf[0], buf[1]) : String.Empty;
-        }
-
-        private String GetRevision()
-        {
-            if (ControlEndPoint == null)
-            {
-                return String.Empty;
-            }
-            var ctrlEp = ControlEndPoint;
-            ctrlEp.Target = CyConst.TGT_DEVICE;
-            ctrlEp.Direction = CyConst.DIR_FROM_DEVICE;
-            ctrlEp.ReqType = CyConst.REQ_VENDOR;
-            ctrlEp.ReqCode = CMD_GET_REVID_VERSION;
-            ctrlEp.Value = 0x0000;
-            ctrlEp.Index = 0x0000;
-            ctrlEp.TimeOut = 1000;
-
-            int len = 1;
-            byte[] buf = new byte[len];
-
-            bool isOk = ctrlEp.XferData(ref buf, ref len);
-            return isOk ? String.Format("{0}", buf[0]) : String.Empty;
-        }
-
-        private bool SetPortaA(byte value)
-        {
-            if (ControlEndPoint == null)
-            {
-                return false;
-            }
-            var ctrlEp = ControlEndPoint;
-            ctrlEp.Target = CyConst.TGT_DEVICE;
-            ctrlEp.Direction = CyConst.DIR_FROM_DEVICE;
-            ctrlEp.ReqType = CyConst.REQ_VENDOR;
-            ctrlEp.ReqCode = CMD_SET_PORTA;
-            ctrlEp.Value = value;
-            ctrlEp.Index = 0x0000;
-            ctrlEp.TimeOut = 1000;
-
-            int len = 1;
-            byte[] buf = new byte[len];
-
-            bool isOk = ctrlEp.XferData(ref buf, ref len);
-            return isOk;
-        }
-
-        private bool SetOutputPort(byte value)
-        {
-            if (ControlEndPoint == null)
-            {
-                return false;
-            }
-            var ctrlEp = ControlEndPoint;
-            ctrlEp.Target = CyConst.TGT_DEVICE;
-            ctrlEp.Direction = CyConst.DIR_FROM_DEVICE;
-            ctrlEp.ReqType = CyConst.REQ_VENDOR;
-            ctrlEp.ReqCode = CMD_SET_OUTPUT;
-            ctrlEp.Value = value;
-            ctrlEp.Index = 0x0000;
-            ctrlEp.TimeOut = 1000;
-
-            int len = 1;
-            byte[] buf = new byte[len];
-
-            bool isOk = ctrlEp.XferData(ref buf, ref len);
-            return isOk;
-        }
-
-        private bool StartCapture()
-        {
-            if (ControlEndPoint == null || BulkInEndPoint == null)
-            {
-                return false;
-            }
-
-
-            var ctrlEp = ControlEndPoint;
-            ctrlEp.Target = CyConst.TGT_DEVICE;
-            ctrlEp.Direction = CyConst.DIR_TO_DEVICE;
-            ctrlEp.ReqType = CyConst.REQ_VENDOR;
-            ctrlEp.ReqCode = CMD_START;
-            ctrlEp.Value = 0x0000;
-            ctrlEp.Index = 0x0000;
-            ctrlEp.TimeOut = 2000;
-
-            var initStruct = new cmd_start_acquisition_struct();
-            initStruct.flags = CMD_START_FLAGS_SAMPLE_8BIT;// | CMD_START_FLAGS_INV_CLK;
-            initStruct.sample_delay_h = 0;
-            initStruct.sample_delay_l = 0;
-
-            int len = 3;
-            byte[] buf = new byte[len];
-
-            GCHandle h = GCHandle.Alloc(initStruct, GCHandleType.Pinned);
-            Marshal.Copy(h.AddrOfPinnedObject(), buf, 0, len);
-            h.Free();
-
-            bool isOk = ctrlEp.XferData(ref buf, ref len);
-            return isOk;
-        }
-
-        private void ConfigureInEp()
-        {
-            int ppx = 1;
-            BufSz = BulkInEndPoint.MaxPktSize * ppx;
-            PPX = ppx;
-            QueueSz = 128;
-        }
-
-        private void StartReceiveData()
-        {
-            //tListen = new Thread(new ThreadStart(XferThread));
-            tListen = new Thread(new ThreadStart(AutoReceiveDataThread));
-            tListen.IsBackground = true;
-            tListen.Priority = ThreadPriority.Highest;
-            tListen.Start();
-        }
+        
 
         private void StopProcessing()
         {
-            if (bRunning)
+            if (captureDevice.IsRunning)
             {
-                bRunning = false;
-                if (tListen != null)
-                {
-                    if (tListen.IsAlive)
-                    {
-                        tListen.Abort();
-                        //tListen.Join();
-                    }
-                    tListen = null;
-                }
+                captureDevice.StopReceiving();
             }
             StartBtn.Text = "Start";
             StartBtn.BackColor = Color.Aquamarine;
@@ -679,7 +358,7 @@ namespace CyCapture
         */
         private void StartBtn_Click(object sender, System.EventArgs e)
         {
-            if (MyDevice == null)
+            if (!captureDevice.IsReady)
                 return;
 
             if (StartBtn.Text.Equals("Start"))
@@ -689,16 +368,9 @@ namespace CyCapture
                 StartBtn.Text = "Stop";
                 StartBtn.BackColor = Color.Pink;
 
-                xferRate = 0;
-                StatusUpdate(new byte[0], 0, false);
+                StatusUpdate(false);
 
-                ConfigureInEp();
-                if (StartCapture())
-                {
-                    bRunning = true;
-                    StartReceiveData();
-                }
-                else
+                if (!captureDevice.StartReceiveData())
                 {
                     StopProcessing();
                     MessageBox.Show("Unable to start capture", "Error!");
@@ -708,213 +380,49 @@ namespace CyCapture
             {
                 StopProcessing();
             }
-
         }
 
 
-        /*Summary
-          Data Xfer Thread entry point. Starts the thread on Start Button click 
-        */
-        public void XferThread()
+        void captureDevice_CaptureCompleted(object sender, CaptureEventArgs e)
         {
-            int totallen = 65536;
-            byte[] totalbytes = new byte[totallen];
-
-            int len = 512;
-            byte[] buf = new byte[len];
-
-            BulkInEndPoint.XferMode = XMODE.BUFFERED;
-            BulkInEndPoint.XferSize = len;
-            BulkInEndPoint.TimeOut = 2000;
-
-            var sw = new Stopwatch();
-
-            int i = 0;
-
-            sw.Start();
-
-            while (bRunning)
-            {
-                bool isOk = BulkInEndPoint.XferData(ref buf, ref len, false);
-                if (isOk)
-                {
-                    var ems = sw.ElapsedMilliseconds;
-                    if (ems == 0)
-                    {
-                        ems = 1;
-                    }
-                    //Buffer.BlockCopy(buf, 0, totalbytes, i, len);
-                    Array.Copy(buf, 0, totalbytes, i, len);
-                    i += len;
-                    xferRate = (i / ems);
-
-                    if (i >= totallen)
-                    {
-                        bRunning = false;
-                    }
-                }
-                else
-                {
-                    bRunning = false;
-                }
-            }
-
-            sw.Stop();
-
-            this.Invoke(updateUI, totalbytes, i, true);
+            StatusUpdate(true);
         }
 
-        public void AutoReceiveDataThread()
+        void captureDevice_DeviceReady(object sender, DeviceReadyEventArgs e)
         {
-            BulkInEndPoint.XferMode = XMODE.BUFFERED;
-            BulkInEndPoint.XferSize = BufSz;
-            BulkInEndPoint.TimeOut = 2000;
-
-            var sw = new Stopwatch();
-
-            XferBytes = 0;
-
-            byte[][] cmdBufs = new byte[QueueSz][];
-            byte[][] xferBufs = new byte[QueueSz][];
-            byte[][] ovLaps = new byte[QueueSz][];
-
-            int xStart = 0;
-
-            sw.Start();
-            
-            try
-            {
-                LockNLoad(ref xStart, cmdBufs, xferBufs, ovLaps);
-            }
-            catch (NullReferenceException e)
-            {
-                e.GetBaseException();
-                this.Invoke(handleException);
-            }
-        }
-
-
-        /*Summary
-          This is a recursive routine for pinning all the buffers used in the transfer in memory.
-        It will get recursively called QueueSz times.  On the QueueSz_th call, it will call
-        XferData, which will loop, transferring data, until the stop button is clicked.
-        Then, the recursion will unwind.
-        */
-        public unsafe void LockNLoad(ref int j, byte[][] cBufs, byte[][] xBufs, byte[][] oLaps)
-        {
-            
-            // Allocate one set of buffers for the queue. Buffered IO method require user to allocate a buffer as a part of command buffer,
-            // the BeginDataXfer does not allocated it. BeginDataXfer will copy the data from the main buffer to the allocated while initializing the commands.
-            cBufs[j] = new byte[CyConst.SINGLE_XFER_LEN + ((BulkInEndPoint.XferMode == XMODE.BUFFERED) ? BufSz : 0)];
-            xBufs[j] = new byte[BufSz];
-            oLaps[j] = new byte[CyConst.OverlapSignalAllocSize];
-
-            fixed (byte* tL0 = oLaps[j], tc0 = cBufs[j], tb0 = xBufs[j])  // Pin the buffers in memory
-            {
-                OVERLAPPED* ovLapStatus = (OVERLAPPED*)tL0;
-                ovLapStatus->hEvent = (IntPtr)PInvoke.CreateEvent(0, 0, 0, 0);
-
-                // Pre-load the queue with a request
-                int len = BufSz;
-                BulkInEndPoint.BeginDataXfer(ref cBufs[j], ref xBufs[j], ref len, ref oLaps[j]);
-
-                j++;
-
-                if (j < QueueSz)
-                {
-                    LockNLoad(ref j, cBufs, xBufs, oLaps); // Recursive call to pin next buffers in memory
-                }
-                else
-                {
-                    XferData(cBufs, xBufs, oLaps); // All loaded. Let's go!
-                }
-            }
-        }
-
-
-
-        /*Summary
-          Called at the end of recursive method, LockNLoad().
-          XferData() implements the infinite transfer loop
-        */
-        public unsafe void XferData(byte[][] cBufs, byte[][] xBufs, byte[][] oLaps)
-        {
-            int k = 0;
-            int len = 0;
-
-            XferBytes = 0;
-            t1 = DateTime.Now;
-
-            while (bRunning)
-            {
-                // WaitForXfer
-                fixed (byte* tmpOvlap = oLaps[k])
-                {
-                    OVERLAPPED* ovLapStatus = (OVERLAPPED*)tmpOvlap;
-                    if (!BulkInEndPoint.WaitForXfer(ovLapStatus->hEvent, 500))
-                    {
-                        BulkInEndPoint.Abort();
-                        PInvoke.WaitForSingleObject(ovLapStatus->hEvent, CyConst.INFINITE);
-                    }
-                }
-
-                // FinishDataXfer
-                if (BulkInEndPoint.FinishDataXfer(ref cBufs[k], ref xBufs[k], ref len, ref oLaps[k]))
-                {
-                    XferBytes += len;
-                }
-                
-
-                k++;
-                if (k == QueueSz)  // Only update displayed stats once each time through the queue
-                {
-                    k = 0;
-
-                    t2 = DateTime.Now;
-                    elapsed = t2 - t1;
-
-                    xferRate = (long)(XferBytes / elapsed.TotalMilliseconds);
-                    //xferRate = xferRate / (int)100 * (int)100;
-
-                    byte[] megaBuf = new byte[BufSz * xBufs.Length];
-                    for (int i = 0; i < xBufs.Length; i++)
-                    {
-                        Array.Copy(xBufs[i], 0, megaBuf, BufSz * i, BufSz);
-                    }
-
-                    bRunning = false;
-                    this.Invoke(updateUI, megaBuf, (long)XferBytes, true);
-                }               
-
-            } // End infinite loop
-
+            txtDeviceName.Text = e.DeviceName;
+            txtVersion.Text = String.Format("Version: {0}; Revision: {1}", e.Version, e.Revision);
+            StartBtn.Enabled = true;
         }
 
 
         /*Summary
           The callback routine delegated to updateUI.
         */
-        public void StatusUpdate(byte[] buf, long len, bool isCompleted)
+        private void StatusUpdate(bool isCompleted)
         {
-            if (xferRate > ProgressBar.Maximum)
-                ProgressBar.Maximum = (int)(xferRate * 1.25);
+            if (captureDevice.XferRate > ProgressBar.Maximum)
+                ProgressBar.Maximum = (int)(captureDevice.XferRate * 1.25);
 
-            ProgressBar.Value = (int)xferRate;
-            ThroughputLabel.Text = String.Format("{0} KB/s;   {1} bytes received.", ProgressBar.Value, len);
+            ProgressBar.Value = (int)captureDevice.XferRate;
+            ThroughputLabel.Text = String.Format("{0} KB/s;   {1} bytes received.", ProgressBar.Value, captureDevice.ResultLength);
 
             int drawLength = 1024;
-            if (len < drawLength)
+            if (captureDevice.ResultLength < drawLength)
             {
-                drawLength = (int)len;
+                drawLength = (int)captureDevice.ResultLength;
             }
 
-            txtData.Text = BitConverter.ToString(buf, 0, drawLength); 
-            //txtData.Text = string.Join(" ", new List<byte>(buf).Select(x => Convert.ToString(x, 2).PadLeft(8, '0')));
+            if (captureDevice.ResultLength > 0)
+            {
+                txtData.Text = BitConverter.ToString(captureDevice.ResultBuffer, 0, drawLength);
+                //txtData.Text = string.Join(" ", new List<byte>(buf).Select(x => Convert.ToString(x, 2).PadLeft(8, '0')));
+            }
 
             canvas.Image = null;
 
             //draw function
-            if (len > 0)
+            if (captureDevice.ResultLength > 0)
             {
                 Bitmap bitmap = new Bitmap(drawLength, 256, PixelFormat.Format16bppRgb565);
 
@@ -925,11 +433,11 @@ namespace CyCapture
 
                 for (int i = 0; i < drawLength; i++)
                 {
-                    int h = 255 - buf[i];
+                    int h = 255 - captureDevice.ResultBuffer[i];
                     //bitmap.SetPixel(i, h, Color.Black);
                     if (i > 0)
                     {
-                        int prevh = 255 - buf[i-1];
+                        int prevh = 255 - captureDevice.ResultBuffer[i-1];
                         g.DrawLine(new Pen(Color.Black), new Point(i-1, prevh), new Point(i, h));
                     }
                 }
@@ -953,7 +461,7 @@ namespace CyCapture
                 byte val = 0;
                 if (byte.TryParse(txtPortValue.Text.Replace("0x", ""), NumberStyles.HexNumber, new NumberFormatInfo(), out val))
                 {
-                    SetOutputPort(val);
+                    captureDevice.SetOutputPort(val);
                 }
                 else
                 {
@@ -961,17 +469,6 @@ namespace CyCapture
                 }
             }
         }
-
-
-        /*Summary
-          The callback routine delegated to handleException.
-        */
-        public void ThreadException()
-        {
-            StopProcessing();
-        }
-
-
 
     }
 }
