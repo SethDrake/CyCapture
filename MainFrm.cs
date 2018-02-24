@@ -19,8 +19,10 @@ namespace CyCapture
     {
         private const byte CMD_GET_FW_VERSION = 0xB0;
         private const byte CMD_START = 0xB1;
-        private const byte CMD_GET_REVID_VERSION = 0xB2;
-        private const byte CMD_SET_PORTA = 0xB3;
+        private const byte CMD_STOP = 0xB2;
+        private const byte CMD_GET_REVID_VERSION = 0xB3;
+        private const byte CMD_SET_OUTPUT = 0xB4;
+        private const byte CMD_SET_PORTA = 0xB5;
 
         private const byte CMD_START_FLAGS_WIDE_POS = 5;
         private const byte CMD_START_FLAGS_CLK_SRC_POS = 6;
@@ -53,12 +55,10 @@ namespace CyCapture
         TimeSpan elapsed;
         double XferBytes;
         long xferRate;
-        long received;
 
         int BufSz;
         int QueueSz;
         int PPX;
-        int IsoPktBlockSize = 0;
 
         Thread tListen;
         bool bRunning;
@@ -70,9 +70,9 @@ namespace CyCapture
         private Label lblVer;
         private TextBox txtVersion;
         private TextBox txtData;
-        private Label lblPortA;
+        private Label lblFreq;
         private TextBox txtPortValue;
-        private Button btnSetPortA;
+        private Button btnSetOutputPort;
         private PictureBox canvas;
 
         // These are needed to close the app from the Thread exception(exception handling)
@@ -160,7 +160,7 @@ namespace CyCapture
                 if (ControlEndPoint != null)
                 {
                     StartBtn.Enabled = true;
-                    btnSetPortA.Enabled = true;
+                    btnSetOutputPort.Enabled = true;
 
                     String ver = GetFirmwareVer();
                     String rev = GetRevision();
@@ -170,7 +170,7 @@ namespace CyCapture
             else
             {
                 StartBtn.Enabled = false;
-                btnSetPortA.Enabled = false;
+                btnSetOutputPort.Enabled = false;
                 txtData.Clear();
             }
         }
@@ -259,9 +259,9 @@ namespace CyCapture
             this.lblVer = new System.Windows.Forms.Label();
             this.txtVersion = new System.Windows.Forms.TextBox();
             this.txtData = new System.Windows.Forms.TextBox();
-            this.lblPortA = new System.Windows.Forms.Label();
+            this.lblFreq = new System.Windows.Forms.Label();
             this.txtPortValue = new System.Windows.Forms.TextBox();
-            this.btnSetPortA = new System.Windows.Forms.Button();
+            this.btnSetOutputPort = new System.Windows.Forms.Button();
             this.canvas = new System.Windows.Forms.PictureBox();
             this.groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.canvas)).BeginInit();
@@ -391,14 +391,14 @@ namespace CyCapture
             this.txtData.Size = new System.Drawing.Size(330, 152);
             this.txtData.TabIndex = 20;
             // 
-            // lblPortA
+            // lblFreq
             // 
-            this.lblPortA.AutoSize = true;
-            this.lblPortA.Location = new System.Drawing.Point(18, 87);
-            this.lblPortA.Name = "lblPortA";
-            this.lblPortA.Size = new System.Drawing.Size(50, 13);
-            this.lblPortA.TabIndex = 21;
-            this.lblPortA.Text = "PORT A:";
+            this.lblFreq.AutoSize = true;
+            this.lblFreq.Location = new System.Drawing.Point(18, 87);
+            this.lblFreq.Name = "lblFreq";
+            this.lblFreq.Size = new System.Drawing.Size(39, 13);
+            this.lblFreq.TabIndex = 21;
+            this.lblFreq.Text = "FREQ:";
             // 
             // txtPortValue
             // 
@@ -409,15 +409,15 @@ namespace CyCapture
             this.txtPortValue.TabIndex = 22;
             this.txtPortValue.Text = "0x00";
             // 
-            // btnSetPortA
+            // btnSetOutputPort
             // 
-            this.btnSetPortA.Location = new System.Drawing.Point(111, 83);
-            this.btnSetPortA.Name = "btnSetPortA";
-            this.btnSetPortA.Size = new System.Drawing.Size(42, 20);
-            this.btnSetPortA.TabIndex = 23;
-            this.btnSetPortA.Text = "Set";
-            this.btnSetPortA.UseVisualStyleBackColor = false;
-            this.btnSetPortA.Click += new System.EventHandler(this.btnSetPortA_Click);
+            this.btnSetOutputPort.Location = new System.Drawing.Point(111, 83);
+            this.btnSetOutputPort.Name = "btnSetOutputPort";
+            this.btnSetOutputPort.Size = new System.Drawing.Size(42, 20);
+            this.btnSetOutputPort.TabIndex = 23;
+            this.btnSetOutputPort.Text = "Set";
+            this.btnSetOutputPort.UseVisualStyleBackColor = false;
+            this.btnSetOutputPort.Click += new System.EventHandler(this.btnSetPortA_Click);
             // 
             // canvas
             // 
@@ -438,9 +438,9 @@ namespace CyCapture
             this.AutoScaleBaseSize = new System.Drawing.Size(5, 13);
             this.ClientSize = new System.Drawing.Size(374, 561);
             this.Controls.Add(this.canvas);
-            this.Controls.Add(this.btnSetPortA);
+            this.Controls.Add(this.btnSetOutputPort);
             this.Controls.Add(this.txtPortValue);
-            this.Controls.Add(this.lblPortA);
+            this.Controls.Add(this.lblFreq);
             this.Controls.Add(this.txtData);
             this.Controls.Add(this.txtVersion);
             this.Controls.Add(this.lblVer);
@@ -583,6 +583,28 @@ namespace CyCapture
             return isOk;
         }
 
+        private bool SetOutputPort(byte value)
+        {
+            if (ControlEndPoint == null)
+            {
+                return false;
+            }
+            var ctrlEp = ControlEndPoint;
+            ctrlEp.Target = CyConst.TGT_DEVICE;
+            ctrlEp.Direction = CyConst.DIR_FROM_DEVICE;
+            ctrlEp.ReqType = CyConst.REQ_VENDOR;
+            ctrlEp.ReqCode = CMD_SET_OUTPUT;
+            ctrlEp.Value = value;
+            ctrlEp.Index = 0x0000;
+            ctrlEp.TimeOut = 1000;
+
+            int len = 1;
+            byte[] buf = new byte[len];
+
+            bool isOk = ctrlEp.XferData(ref buf, ref len);
+            return isOk;
+        }
+
         private bool StartCapture()
         {
             if (ControlEndPoint == null || BulkInEndPoint == null)
@@ -618,15 +640,16 @@ namespace CyCapture
 
         private void ConfigureInEp()
         {
-            int ppx = 128;
+            int ppx = 1;
             BufSz = BulkInEndPoint.MaxPktSize * ppx;
-            QueueSz = 1;
             PPX = ppx;
+            QueueSz = 128;
         }
 
         private void StartReceiveData()
         {
-            tListen = new Thread(new ThreadStart(XferThread));
+            //tListen = new Thread(new ThreadStart(XferThread));
+            tListen = new Thread(new ThreadStart(AutoReceiveDataThread));
             tListen.IsBackground = true;
             tListen.Priority = ThreadPriority.Highest;
             tListen.Start();
@@ -678,6 +701,7 @@ namespace CyCapture
                 else
                 {
                     StopProcessing();
+                    MessageBox.Show("Unable to start capture", "Error!");
                 }
             }
             else
@@ -738,31 +762,36 @@ namespace CyCapture
             sw.Stop();
 
             this.Invoke(updateUI, totalbytes, i, true);
+        }
 
-            Thread.Sleep(1);
+        public void AutoReceiveDataThread()
+        {
+            BulkInEndPoint.XferMode = XMODE.BUFFERED;
+            BulkInEndPoint.XferSize = BufSz;
+            BulkInEndPoint.TimeOut = 2000;
 
-            // Setup the queue buffers
-            /*byte[][] cmdBufs = new byte[QueueSz][];
+            var sw = new Stopwatch();
+
+            XferBytes = 0;
+
+            byte[][] cmdBufs = new byte[QueueSz][];
             byte[][] xferBufs = new byte[QueueSz][];
             byte[][] ovLaps = new byte[QueueSz][];
-            ISO_PKT_INFO[][] pktsInfo = new ISO_PKT_INFO[QueueSz][];
 
             int xStart = 0;
 
+            sw.Start();
+            
             try
             {
-                LockNLoad(ref xStart, cmdBufs, xferBufs, ovLaps, pktsInfo);
+                LockNLoad(ref xStart, cmdBufs, xferBufs, ovLaps);
             }
             catch (NullReferenceException e)
             {
-                // This exception gets thrown if the device is unplugged 
-                // while we're streaming data
                 e.GetBaseException();
                 this.Invoke(handleException);
-            }*/
+            }
         }
-
-
 
 
         /*Summary
@@ -771,15 +800,14 @@ namespace CyCapture
         XferData, which will loop, transferring data, until the stop button is clicked.
         Then, the recursion will unwind.
         */
-        public unsafe void LockNLoad(ref int j, byte[][] cBufs, byte[][] xBufs, byte[][] oLaps, ISO_PKT_INFO[][] pktsInfo)
+        public unsafe void LockNLoad(ref int j, byte[][] cBufs, byte[][] xBufs, byte[][] oLaps)
         {
             
             // Allocate one set of buffers for the queue. Buffered IO method require user to allocate a buffer as a part of command buffer,
             // the BeginDataXfer does not allocated it. BeginDataXfer will copy the data from the main buffer to the allocated while initializing the commands.
-            cBufs[j] = new byte[CyConst.SINGLE_XFER_LEN + IsoPktBlockSize+ ((BulkInEndPoint.XferMode == XMODE.BUFFERED) ? BufSz : 0)];
+            cBufs[j] = new byte[CyConst.SINGLE_XFER_LEN + ((BulkInEndPoint.XferMode == XMODE.BUFFERED) ? BufSz : 0)];
             xBufs[j] = new byte[BufSz];
             oLaps[j] = new byte[CyConst.OverlapSignalAllocSize];
-            pktsInfo[j] = new ISO_PKT_INFO[PPX];
 
             fixed (byte* tL0 = oLaps[j], tc0 = cBufs[j], tb0 = xBufs[j])  // Pin the buffers in memory
             {
@@ -793,12 +821,14 @@ namespace CyCapture
                 j++;
 
                 if (j < QueueSz)
-                    LockNLoad(ref j, cBufs, xBufs, oLaps, pktsInfo);  // Recursive call to pin next buffers in memory
+                {
+                    LockNLoad(ref j, cBufs, xBufs, oLaps); // Recursive call to pin next buffers in memory
+                }
                 else
-                    XferData(cBufs, xBufs, oLaps, pktsInfo);          // All loaded. Let's go!
-
+                {
+                    XferData(cBufs, xBufs, oLaps); // All loaded. Let's go!
+                }
             }
-
         }
 
 
@@ -807,7 +837,7 @@ namespace CyCapture
           Called at the end of recursive method, LockNLoad().
           XferData() implements the infinite transfer loop
         */
-        public unsafe void XferData(byte[][] cBufs, byte[][] xBufs, byte[][] oLaps, ISO_PKT_INFO[][] pktsInfo)
+        public unsafe void XferData(byte[][] cBufs, byte[][] xBufs, byte[][] oLaps)
         {
             int k = 0;
             int len = 0;
@@ -815,7 +845,7 @@ namespace CyCapture
             XferBytes = 0;
             t1 = DateTime.Now;
 
-            for (; bRunning; )
+            while (bRunning)
             {
                 // WaitForXfer
                 fixed (byte* tmpOvlap = oLaps[k])
@@ -834,9 +864,6 @@ namespace CyCapture
                     XferBytes += len;
                 }
                 
-                // Re-submit this buffer into the queue
-                len = BufSz;
-                BulkInEndPoint.BeginDataXfer(ref cBufs[k], ref xBufs[k], ref len, ref oLaps[k]);
 
                 k++;
                 if (k == QueueSz)  // Only update displayed stats once each time through the queue
@@ -847,14 +874,16 @@ namespace CyCapture
                     elapsed = t2 - t1;
 
                     xferRate = (long)(XferBytes / elapsed.TotalMilliseconds);
-                    xferRate = xferRate / (int)100 * (int)100;
+                    //xferRate = xferRate / (int)100 * (int)100;
 
-                    // Call StatusUpdate() in the main thread
-                    this.Invoke(updateUI);
+                    byte[] megaBuf = new byte[BufSz * xBufs.Length];
+                    for (int i = 0; i < xBufs.Length; i++)
+                    {
+                        Array.Copy(xBufs[i], 0, megaBuf, BufSz * i, BufSz);
+                    }
 
-                    // For small QueueSz or PPX, the loop is too tight for UI thread to ever get service.   
-                    // Without this, app hangs in those scenarios.
-                    Thread.Sleep(1);
+                    bRunning = false;
+                    this.Invoke(updateUI, megaBuf, (long)XferBytes, true);
                 }               
 
             } // End infinite loop
@@ -873,7 +902,13 @@ namespace CyCapture
             ProgressBar.Value = (int)xferRate;
             ThroughputLabel.Text = String.Format("{0} KB/s;   {1} bytes received.", ProgressBar.Value, len);
 
-            txtData.Text = BitConverter.ToString(buf, 0, (int)len); 
+            int drawLength = 1024;
+            if (len < drawLength)
+            {
+                drawLength = (int)len;
+            }
+
+            txtData.Text = BitConverter.ToString(buf, 0, drawLength); 
             //txtData.Text = string.Join(" ", new List<byte>(buf).Select(x => Convert.ToString(x, 2).PadLeft(8, '0')));
 
             canvas.Image = null;
@@ -881,14 +916,14 @@ namespace CyCapture
             //draw function
             if (len > 0)
             {
-                Bitmap bitmap = new Bitmap((int)len, 256, PixelFormat.Format16bppRgb565);
+                Bitmap bitmap = new Bitmap(drawLength, 256, PixelFormat.Format16bppRgb565);
 
                 //clear bitmap
                 Graphics g = Graphics.FromImage(bitmap);
                 g.Clear(Color.White);
                 g.SmoothingMode = SmoothingMode.HighQuality;
 
-                for (int i = 0; i < len; i++)
+                for (int i = 0; i < drawLength; i++)
                 {
                     int h = 255 - buf[i];
                     //bitmap.SetPixel(i, h, Color.Black);
@@ -901,7 +936,6 @@ namespace CyCapture
                 IntPtr hBitmap = bitmap.GetHbitmap();
                 canvas.Image = Image.FromHbitmap(hBitmap);
                 canvas.SizeMode = PictureBoxSizeMode.StretchImage;
-                //canvas.Width = bitmap.Width;
                 canvas.Height = bitmap.Height;
             }
 
@@ -919,7 +953,7 @@ namespace CyCapture
                 byte val = 0;
                 if (byte.TryParse(txtPortValue.Text.Replace("0x", ""), NumberStyles.HexNumber, new NumberFormatInfo(), out val))
                 {
-                    SetPortaA(val);
+                    SetOutputPort(val);
                 }
                 else
                 {

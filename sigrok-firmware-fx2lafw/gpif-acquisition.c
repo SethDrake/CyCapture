@@ -48,7 +48,6 @@ static void gpif_setup_registers(void)
 
 	/*
 	 * Set TRICTL = 0, thus CTL0-CTL5 are CMOS outputs.
-	 * TODO: Probably irrelevant, as we don't use CTL0-CTL5?
 	 */
 	GPIFCTLCFG = 0;
 
@@ -170,10 +169,10 @@ static void gpif_make_data_dp_state(volatile BYTE *pSTATE)
 {
 	/*
 	 * BRANCH
-	 * Branch to IDLE if condition is true, back to S5 otherwise.
+	 * Branch to IDLE if condition is true, back to S2 otherwise.
 	 * re-execute
 	 */
-	pSTATE[0] = (7 << 3) | (5 << 0) | (1 << 7);
+	pSTATE[0] = (7 << 3) | (2 << 0) | (1 << 7);
 
 	/*
 	 * OPCODE
@@ -218,9 +217,6 @@ bool gpif_acquisition_prepare(const struct cmd_start_acquisition *cmd)
 	/* Populate delay states. */
 		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
-		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
-		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
-		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 
 	/* Populate S1 - the decision point. */
 	gpif_make_data_dp_state(pSTATE++);
@@ -237,9 +233,6 @@ void gpif_acquisition_restart(void)
 	volatile BYTE *pSTATE = &GPIF_WAVE_DATA;
 
 	/* Populate delay states. */
-	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
-	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
-	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 
@@ -262,9 +255,65 @@ void gpif_acquisition_start(void)
 	gpif_acquiring = RUNNING;
 }
 
+void gpif_acquisition_stop(void)
+{
+	FIFORESET = 0x80;
+	SYNCDELAY();
+
+	/* Switch to manual mode. */
+	EP2FIFOCFG = 0;
+	SYNCDELAY();
+
+	/* Reset EP2. */
+	FIFORESET = 0x02;
+	SYNCDELAY();
+
+	/* Return to auto mode. */
+	EP2FIFOCFG = bmAUTOIN;
+	SYNCDELAY();
+
+	/* Release NAK-ALL. */
+	FIFORESET = 0x00;
+	SYNCDELAY();
+
+	/* Update the status. */
+	gpif_acquiring = STOPPED;
+}
+
 bool switchPortAPins(uint8_t val)
 {
 	IOA = val;
+	SYNCDELAY();
+
+	return true;
+}
+
+bool setValueToFifoPort(uint8_t val)
+{
+	gpif_acquisition_stop();
+
+	IFCONFIG = 0x40; //ports mode, disable GPIF
+	SYNCDELAY();
+	
+	OEB = 0xFF;
+	SYNCDELAY();
+	IOB = val;
+	SYNCDELAY();
+
+	IOA = 0x01; //set PORTA.0 = 1 - enable freq input to FPGA
+	
+	SYNCDELAY();
+	SYNCDELAY();
+	SYNCDELAY();
+	SYNCDELAY();
+	SYNCDELAY();
+	SYNCDELAY();
+	SYNCDELAY();
+	SYNCDELAY();
+
+	IOA = 0x00; //set PORTA.0 = 0 - disable freq input to FPGA
+
+	IFCONFIG = 0x42;
 	SYNCDELAY();
 
 	return true;
@@ -274,29 +323,7 @@ void gpif_poll(void)
 {
 	/* Detect if acquisition has completed. */
 	if ((gpif_acquiring == RUNNING) && (GPIFTRIG & 0x80)) {
-		/* Activate NAK-ALL to avoid race conditions. */
-		FIFORESET = 0x80;
-		SYNCDELAY();
-
-		/* Switch to manual mode. */
-		EP2FIFOCFG = 0;
-		SYNCDELAY();
-
-		/* Reset EP2. */
-		FIFORESET = 0x02;
-		SYNCDELAY();
-
-		/* Return to auto mode. */
-		EP2FIFOCFG = bmAUTOIN;
-		SYNCDELAY();
-
-		/* Release NAK-ALL. */
-		FIFORESET = 0x00;
-		SYNCDELAY();
-		
-		switchPortAPins(0x00);
-
-		gpif_acquiring = STOPPED;
+		gpif_acquisition_stop();
 
 		//gpif_acquisition_restart();
 	}

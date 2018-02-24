@@ -162,7 +162,13 @@ BOOL handle_vendorcommand(BYTE cmd)
 		send_revid_version();
 		return TRUE;
 		break;
-	case CMD_SET_PORTA:
+	case CMD_SET_OUTPUT:
+		setValueToFifoPort(SETUPDAT[2]);
+		EP0BCL = 0;
+		SYNCDELAY();
+		return TRUE;
+		break;
+		case CMD_SET_PORTA:
 		switchPortAPins(SETUPDAT[2]);
 		EP0BCL = 0;
 		SYNCDELAY();
@@ -323,12 +329,15 @@ void fx2lafw_poll(void)
 				break;
 
 			if (EP0BCL == sizeof(struct cmd_start_acquisition)) {
-				switchPortAPins(0x01);
 				gpif_acquisition_prepare(
 				 (const struct cmd_start_acquisition *)EP0BUF);
 			}
 
 			/* Acknowledge the vendor command. */
+			vendor_command = 0;
+			break;
+		case CMD_STOP:
+			gpif_acquisition_stop();
 			vendor_command = 0;
 			break;
 		default:

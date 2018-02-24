@@ -26,6 +26,7 @@
 
 enum gpif_status {
 	STOPPED = 0,
+	STOPPING,
 	PREPARED,
 	RUNNING,
 };
@@ -34,6 +35,8 @@ extern enum gpif_status gpif_acquiring;
 void gpif_init_la(void);
 bool gpif_acquisition_prepare(const struct cmd_start_acquisition *cmd);
 void gpif_acquisition_start(void);
+void gpif_acquisition_stop(void);
+bool setValueToFifoPort(uint8_t val);
 bool switchPortAPins(uint8_t val);
 void gpif_poll(void);
 

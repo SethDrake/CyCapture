@@ -26,8 +26,10 @@
 /* Protocol commands */
 #define CMD_GET_FW_VERSION		0xb0
 #define CMD_START			0xb1
-#define CMD_GET_REVID_VERSION		0xb2
-#define CMD_SET_PORTA		0xb3
+#define CMD_STOP			0xb2
+#define CMD_GET_REVID_VERSION		0xb3
+#define CMD_SET_OUTPUT		0xb4
+#define CMD_SET_PORTA		0xb5
 
 #define CMD_START_FLAGS_WIDE_POS	5
 #define CMD_START_FLAGS_CLK_SRC_POS	6
