@@ -21,6 +21,7 @@ namespace CyCapture
         private Label lblFreq;
         private TextBox txtPortValue;
         private Button btnSetOutputPort;
+        private Button btnGetStatus;
         private PictureBox canvas;
 
         public MainFrm()
@@ -33,6 +34,7 @@ namespace CyCapture
             captureDevice = new Device();
             captureDevice.CaptureCompleted += new EventHandler<CaptureEventArgs>(captureDevice_CaptureCompleted);
             captureDevice.DeviceReady += new EventHandler<DeviceReadyEventArgs>(captureDevice_DeviceReady);
+            captureDevice.DeviceNotReady += new EventHandler(captureDevice_DeviceNotReady);
             captureDevice.OpenDevice();
         }
 
@@ -93,6 +95,7 @@ namespace CyCapture
             this.txtPortValue = new System.Windows.Forms.TextBox();
             this.btnSetOutputPort = new System.Windows.Forms.Button();
             this.canvas = new System.Windows.Forms.PictureBox();
+            this.btnGetStatus = new System.Windows.Forms.Button();
             this.groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.canvas)).BeginInit();
             this.SuspendLayout();
@@ -263,10 +266,21 @@ namespace CyCapture
             this.canvas.TabIndex = 24;
             this.canvas.TabStop = false;
             // 
+            // btnGetStatus
+            // 
+            this.btnGetStatus.Location = new System.Drawing.Point(159, 83);
+            this.btnGetStatus.Name = "btnGetStatus";
+            this.btnGetStatus.Size = new System.Drawing.Size(46, 20);
+            this.btnGetStatus.TabIndex = 25;
+            this.btnGetStatus.Text = "Status";
+            this.btnGetStatus.UseVisualStyleBackColor = false;
+            this.btnGetStatus.Click += new System.EventHandler(this.btnGetStatus_Click);
+            // 
             // MainFrm
             // 
             this.AutoScaleBaseSize = new System.Drawing.Size(5, 13);
             this.ClientSize = new System.Drawing.Size(374, 561);
+            this.Controls.Add(this.btnGetStatus);
             this.Controls.Add(this.canvas);
             this.Controls.Add(this.btnSetOutputPort);
             this.Controls.Add(this.txtPortValue);
@@ -370,6 +384,9 @@ namespace CyCapture
 
                 StatusUpdate(false);
 
+                captureDevice.PPX = 1;
+                captureDevice.QueueSz = 32;
+
                 if (!captureDevice.StartReceiveData())
                 {
                     StopProcessing();
@@ -385,7 +402,11 @@ namespace CyCapture
 
         void captureDevice_CaptureCompleted(object sender, CaptureEventArgs e)
         {
-            StatusUpdate(true);
+            StatusUpdate(!captureDevice.ContinousMode);
+            if (e.IsError)
+            {
+                MessageBox.Show("Error!");
+            }
         }
 
         void captureDevice_DeviceReady(object sender, DeviceReadyEventArgs e)
@@ -395,6 +416,12 @@ namespace CyCapture
             StartBtn.Enabled = true;
         }
 
+        void captureDevice_DeviceNotReady(object sender, EventArgs e)
+        {
+            txtDeviceName.Text = null;
+            txtVersion.Text = null;
+            StartBtn.Enabled = false;
+        }
 
         /*Summary
           The callback routine delegated to updateUI.
@@ -470,5 +497,22 @@ namespace CyCapture
             }
         }
 
+        private void btnGetStatus_Click(object sender, EventArgs e)
+        {
+            if (!captureDevice.IsReady)
+            {
+                return;
+            }
+            Device.status_info_struct? infoStruct = captureDevice.GetStatusInfo();
+            if (infoStruct == null)
+            {
+                MessageBox.Show("Unable to read status!");
+            }
+            else
+            {
+                MessageBox.Show(String.Format("state:0x{0:x2} gpif_status:0x{1:x2} ifconfig_value:0x{2:x2} ",
+                    infoStruct.Value.state, infoStruct.Value.gpif_status, infoStruct.Value.ifconfig_value));
+            }
+        }
     }
 }

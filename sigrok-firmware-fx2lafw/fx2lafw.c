@@ -144,6 +144,21 @@ static void send_revid_version(void)
 	SYNCDELAY();
 }
 
+static void send_status(void)
+{
+	/* Populate the buffer. */
+	struct status_info *const si = (struct status_info *)EP0BUF;
+	si->state = 0xff;
+	si->gpif_status = gpif_acquiring;
+	si->ifconfig_value = IFCONFIG;
+
+	/* Send the message. */
+	EP0BCH = 0;
+	SYNCDELAY();
+	EP0BCL = sizeof(struct status_info);
+	SYNCDELAY();
+}
+
 BOOL handle_vendorcommand(BYTE cmd)
 {
 	/* Protocol implementation */
@@ -168,10 +183,13 @@ BOOL handle_vendorcommand(BYTE cmd)
 		SYNCDELAY();
 		return TRUE;
 		break;
-		case CMD_SET_PORTA:
+	case CMD_SET_PORTA:
 		switchPortAPins(SETUPDAT[2]);
 		EP0BCL = 0;
 		SYNCDELAY();
+		return TRUE;
+	case CMD_GET_STATUS:
+		send_status();
 		return TRUE;
 		break;		
 	}
@@ -236,7 +254,7 @@ void sutok_isr(void) __interrupt SUTOK_ISR
 	CLEAR_SUTOK();
 }
 
-void sof_isr(void) __interrupt SOF_ISR
+void sof_isr(void) __interrupt SOF_ISR __using 1
 {
 	CLEAR_SOF();
 }

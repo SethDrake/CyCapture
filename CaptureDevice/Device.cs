@@ -35,6 +35,8 @@ namespace CaptureDevice
         private const byte CMD_SET_OUTPUT = 0xB4;
         private const byte CMD_SET_PORTA = 0xB5;
 
+        private const byte CMD_GET_STATUS = 0xB6;
+
         private const byte CMD_START_FLAGS_WIDE_POS = 5;
         private const byte CMD_START_FLAGS_CLK_SRC_POS = 6;
 
@@ -55,6 +57,15 @@ namespace CaptureDevice
             public byte sample_delay_l;
         }
 
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct status_info_struct
+        {
+            public byte state;
+            public byte gpif_status;
+            public byte ifconfig_value;
+        }
+
         // These are needed to close the app from the Thread exception(exception handling)
         delegate void ExceptionCallback();
         ExceptionCallback handleException;
@@ -63,11 +74,16 @@ namespace CaptureDevice
 
         public event EventHandler<CaptureEventArgs> CaptureCompleted;
         public event EventHandler<DeviceReadyEventArgs> DeviceReady;
+        public event EventHandler DeviceNotReady;
 
         protected USBDeviceList usbDevices;
         protected CyUSBDevice cyDevice;
         protected CyControlEndPoint controlEndPoint;
         protected CyBulkEndPoint bulkInEndPoint;
+
+        protected String name;
+        protected String version;
+        protected String revision;
 
         protected byte[] resultBuffer;
         protected long resultLength;
@@ -81,15 +97,24 @@ namespace CaptureDevice
 
         protected bool bRunning;
         protected bool isReady;
+        protected bool continousMode;
         protected Thread tCapture;
 
         private Stopwatch sw;
+
+        public string Name => name;
+
+        public string Version => version;
+
+        public string Revision => revision;
 
         public long XferRate => xferRate;
 
         public bool IsRunning => bRunning;
 
         public bool IsReady => isReady;
+
+        public bool ContinousMode => continousMode;
 
         public byte[] ResultBuffer => resultBuffer;
 
@@ -139,6 +164,10 @@ namespace CaptureDevice
             }
             isReady = false;
 
+            name = null;
+            version = null;
+            revision = null;
+
             cyDevice = null;
             controlEndPoint = null;
             bulkInEndPoint = null;
@@ -163,10 +192,7 @@ namespace CaptureDevice
                 if (!isOk)
                 {
                     fx2lp.Reset();
-                    return;
                 }
-                Thread.Sleep(6000);
-                usbDevices = new USBDeviceList(CyConst.DEVICES_CYUSB);
             }
             else
             {
@@ -189,11 +215,15 @@ namespace CaptureDevice
                 {
                     isReady = true;
 
+                    name = dev.FriendlyName;
+                    version = GetFirmwareVer();
+                    revision = GetRevision();
+
                     DeviceReadyEventArgs args = new DeviceReadyEventArgs();
-                    args.DeviceName = dev.FriendlyName;
+                    args.DeviceName = name;
                     args.VidPid = new[] { dev.VendorID, dev.ProductID };
-                    args.Version = GetFirmwareVer();
-                    args.Revision = GetRevision();
+                    args.Version = version;
+                    args.Revision = revision;
 
                     DeviceReady?.Invoke(this, args);
                 }
@@ -201,6 +231,7 @@ namespace CaptureDevice
             else
             {
                 isReady = false;
+                DeviceNotReady?.Invoke(this, null);
             }
         }
 
@@ -277,6 +308,36 @@ namespace CaptureDevice
             return isOk ? String.Format("{0}", buf[0]) : String.Empty;
         }
 
+        public status_info_struct? GetStatusInfo()
+        {
+            if (controlEndPoint == null || bulkInEndPoint == null)
+            {
+                return null;
+            }
+
+            var ctrlEp = controlEndPoint;
+            ctrlEp.Target = CyConst.TGT_DEVICE;
+            ctrlEp.Direction = CyConst.DIR_FROM_DEVICE;
+            ctrlEp.ReqType = CyConst.REQ_VENDOR;
+            ctrlEp.ReqCode = CMD_GET_STATUS;
+            ctrlEp.Value = 0x0000;
+            ctrlEp.Index = 0x0000;
+            ctrlEp.TimeOut = 2000;
+           
+            int len = 3;
+            byte[] buf = new byte[len];
+
+            bool isOk = ctrlEp.XferData(ref buf, ref len);
+            if (isOk)
+            {
+                GCHandle h = GCHandle.Alloc(buf, GCHandleType.Pinned);
+                status_info_struct infoStruct = (status_info_struct)Marshal.PtrToStructure(h.AddrOfPinnedObject(), typeof(status_info_struct));
+                h.Free();
+                return infoStruct;
+            }
+            return null;
+        }
+
         private bool SetPortaA(byte value)
         {
             if (controlEndPoint == null)
@@ -337,7 +398,7 @@ namespace CaptureDevice
             ctrlEp.Index = 0x0000;
             ctrlEp.TimeOut = 2000;
 
-            var initStruct = new CaptureDevice.Device.cmd_start_acquisition_struct();
+            var initStruct = new cmd_start_acquisition_struct();
             initStruct.flags = CMD_START_FLAGS_SAMPLE_8BIT;// | CMD_START_FLAGS_INV_CLK;
             initStruct.sample_delay_h = 0;
             initStruct.sample_delay_l = 0;
@@ -369,6 +430,7 @@ namespace CaptureDevice
                 return false;
             }
 
+            continousMode = false;
             bRunning = true;
             xferRate = 0;
             XferBytes = 0;
@@ -384,6 +446,37 @@ namespace CaptureDevice
                 return false;
             }
             
+            tCapture = new Thread(new ThreadStart(AutoReceiveDataThread));
+            tCapture.IsBackground = true;
+            tCapture.Priority = ThreadPriority.Highest;
+            tCapture.Start();
+
+            return true;
+        }
+
+        public bool StartReceiveDataContinous()
+        {
+            if (!IsReady || IsRunning)
+            {
+                return false;
+            }
+
+            continousMode = true;
+            bRunning = true;
+            xferRate = 0;
+            XferBytes = 0;
+
+            ConfigureInEp();
+
+            resultLength = 0;
+            resultBuffer = new byte[BufSz * QueueSz];
+
+            if (!StartCapture())
+            {
+                bRunning = false;
+                return false;
+            }
+
             tCapture = new Thread(new ThreadStart(AutoReceiveDataThread));
             tCapture.IsBackground = true;
             tCapture.Priority = ThreadPriority.Highest;
@@ -419,10 +512,10 @@ namespace CaptureDevice
             {
                 LockNLoad(ref xStart, cmdBufs, xferBufs, ovLaps);
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                e.GetBaseException();
-                handleException.Invoke();
+                ex.GetBaseException();
+                syncContext.Post(e => handleException.Invoke(), ex);
             }
         }
 
@@ -488,21 +581,37 @@ namespace CaptureDevice
                 if (k == QueueSz)  // Only update displayed stats once each time through the queue
                 {
                     k = 0;
-                    xferRate = (long)(XferBytes / sw.ElapsedMilliseconds);
-                    sw.Stop();
+                    xferRate = (sw.ElapsedMilliseconds > 0) ? ((long)XferBytes / sw.ElapsedMilliseconds) : (long)XferBytes;
+                    if (!continousMode)
+                    {
+                        sw.Stop();
+                        bRunning = false;
+                    }
+                    /*if (continousMode)
+                    {
+                        Array.Clear(resultBuffer, 0, BufSz * QueueSz);
+                    }*/
                     for (int i = 0; i < xBufs.Length; i++)
                     {
                         Array.Copy(xBufs[i], 0, resultBuffer, BufSz * i, BufSz);
                     }
                     resultLength = (long) XferBytes;
 
-                    bRunning = false;
-
                     CaptureEventArgs args = new CaptureEventArgs();
                     args.BytesCaptures = resultLength;
                     args.IsError = false;
-                    
-                    syncContext.Post(e => OnCaptureCompleted(args), args);
+                    syncContext.Post(e => CaptureCompleted?.Invoke(this, args), args);
+                    if (continousMode)
+                    {
+                        Thread.Sleep(1);
+                    }
+                }
+
+                if (continousMode)
+                {
+                    len = BufSz;
+                    Array.Clear(xBufs[k], 0, BufSz);
+                    bulkInEndPoint.BeginDataXfer(ref cBufs[k], ref xBufs[k], ref len, ref oLaps[k]);
                 }
 
             } // End infinite loop
@@ -525,11 +634,6 @@ namespace CaptureDevice
             XferBytes = 0;
             resultLength = 0;
             bRunning = false;
-        }
-
-        private void OnCaptureCompleted(CaptureEventArgs e)
-        {
-            CaptureCompleted?.Invoke(this, e);
         }
 
     }

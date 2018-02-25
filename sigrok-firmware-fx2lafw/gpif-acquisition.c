@@ -134,7 +134,7 @@ void gpif_init_la(void)
 	gpif_init_flowstates();
 
 	/* Reset the status. */
-	gpif_acquiring = FALSE;
+	gpif_acquiring = STOPPED;
 }
 
 static void gpif_make_delay_state(volatile BYTE *pSTATE, uint8_t delay)
@@ -169,10 +169,10 @@ static void gpif_make_data_dp_state(volatile BYTE *pSTATE)
 {
 	/*
 	 * BRANCH
-	 * Branch to IDLE if condition is true, back to S2 otherwise.
+	 * Branch to IDLE if condition is true, back to S5 otherwise.
 	 * re-execute
 	 */
-	pSTATE[0] = (7 << 3) | (2 << 0) | (1 << 7);
+	pSTATE[0] = (7 << 3) | (5 << 0) | (1 << 7);
 
 	/*
 	 * OPCODE
@@ -217,8 +217,11 @@ bool gpif_acquisition_prepare(const struct cmd_start_acquisition *cmd)
 	/* Populate delay states. */
 		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
+		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
+		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
+		gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 
-	/* Populate S1 - the decision point. */
+	/* Populate S5 - the decision point. */
 	gpif_make_data_dp_state(pSTATE++);
 
 	/* Update the status. */
@@ -235,8 +238,11 @@ void gpif_acquisition_restart(void)
 	/* Populate delay states. */
 	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
+	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
+	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
+	gpif_make_delay_state(pSTATE++, 0);  // 256 tiks delay
 
-	/* Populate S1 - the decision point. */
+	/* Populate S5 - the decision point. */
 	gpif_make_data_dp_state(pSTATE++);
 
 	/* Update the status. */
